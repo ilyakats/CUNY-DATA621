@@ -1,0 +1,174 @@
+---
+title: "DATA 621 Homework 3"
+author: "Ilya Kats"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(Hmisc)
+
+opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+This report covers an attempt to build a binary logistic regression model to predict whether the crime rate is above the median crime rate. The model is based on a data set containing information on crime for various Boston neighborhoods. 
+
+## Data Exploration
+
+The data set includes 466 observations with 12 variables (excluding the target variable).
+
+Predictor/independent variables:
+
+- `zn`: proportion of residential land zoned for large lots (over 25,000 square feet)
+- `indus`: proportion of non-retail business acres per suburb
+- `chas`: a dummy variable for whether the suburb borders the Charles River (1) or not (0)
+- `nox`: nitrogen oxides concentration (parts per 10 million)
+- `rm`: average number of rooms per dwelling
+- `age`: proportion of owner-occupied units built prior to 1940
+- `dis`: weighted mean of distances to five Boston employment centers
+- `rad`: index of accessibility to radial highways
+- `tax`: full-value property-tax rate per $10,000
+- `ptratio`: pupil-teacher ratio by town
+- `lstat`: lower status of the population (percent)
+- `medv`: median value of owner-occupied homes in \$1000s
+
+Target/dependent variable:
+
+- `target`: whether the crime rate is above the median crime rate (1) or not (0)
+
+```{r echo=FALSE, warning=FALSE}
+crime <- read.csv("crime-training-data_modified.csv")
+sumCrime = data.frame(Variable = character(),
+                      Min = integer(),
+                      Median = integer(),
+                      Mean = double(),
+                      SD = double(),
+                      Max = integer(),
+                      Num_NAs = integer(),
+                      Num_Zeros = integer())
+for (i in 1:13) {
+  sumCrime <- rbind(sumCrime, data.frame(Variable = colnames(crime)[i],
+                                   Min = min(crime[,i], na.rm=TRUE),
+                                   Median = median(crime[,i], na.rm=TRUE),
+                                   Mean = mean(crime[,i], na.rm=TRUE),
+                                   SD = sd(crime[,i], na.rm=TRUE),
+                                   Max = max(crime[,i], na.rm=TRUE),
+                                   Num_NAs = sum(is.na(crime[,i])),
+                                   Num_Zeros = length(which(crime[,i]==0)))
+                 )
+}
+colnames(sumBB) <- c("", "Min", "Median", "Mean", "SD", "Max", "Num of NAs", "Num of Zeros")
+```
+
+
+- `zn`- _proportion of residential land zoned for large lots (over 25,000 square feet)_ - 339 out of 466 (or about 76%) of observations have a value of 0. It is possible that majority of neighborhoods will not have any residential land zoned for large lots. Therefore, it is likely that 0 represents a valid value rather than a missing one. 
+- `indus` - _proportion of non-retail business acres per suburb_
+- `chas` - _a dummy variable for whether the suburb borders the Charles River (1) or not (0)_ - 433 out of 466 (or about 92.9%) of observations have a value of 0. Even though the Charles River is a promimnent feature of the Boston area, it is quite reasonable to assume that most neighborhoods do not border the river.
+- `nox` - _nitrogen oxides concentration (parts per 10 million)_ - Looking at the scatterplot there seems to be some correlation between the nitrogen oxides concentration and the target variable.
+
+```{r echo=FALSE, warning=FALSE}
+ggplot(crime, aes(x=nox, y=target)) + 
+  geom_point() +
+  stat_smooth(method="glm", method.args=list(family="binomial"), se=FALSE)
+```
+
+- `rm` - _average number of rooms per dwelling_ - Because this is an average of number of rooms, thit is a continous variable.
+- `age` - _proportion of owner-occupied units built prior to 1940_ - There is nothing unusual about this variable; however, it is interesting to note that with the mean of 68.37 and median of 77.15, we can see that there a large number of pre-war buildings. Not surprising for an old city like Boston.
+- `dis` - _weighted mean of distances to five Boston employment centers_ - Interestingly, majority of observations above the median crime rate are within 5 miles of an employment center (there are only 2 observations over 5 miles away). And there may be some correlation between distance and the target variable.
+- `rad` - _index of accessibility to radial highways_ - This is a discrete variable with 9 different values in the observations (1 through 8 and 24).
+- `tax` - _full-value property-tax rate per $10,000_
+- `ptratio` - _pupil-teacher ratio by town_
+- `lstat` - _lower status of the population (percent)_
+- `medv` - _median value of owner-occupied homes in \$1000s_
+
+
+
+All observations with `rad` value of 24 have a `tax` value of 666. 
+
+\newpage
+#### TEAM_BATTING_H: Number of team base hits (includes singles, doubles, triples and home runs)
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=6}
+kable(sumBB[sumBB[,1]=="TEAM_BATTING_H",2:8], row.names=FALSE)
+
+# Boxplot
+bp <- ggplot(bb, aes(x = 1, y = TEAM_BATTING_H)) + 
+  stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplot") + ylab("") + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+# Density plot
+hp <- ggplot(bb, aes(x = TEAM_BATTING_H)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") + ylab("") + xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(TEAM_BATTING_H, na.rm=TRUE)), color="red", linetype="dashed", size=1)
+
+# Scatterplot
+sp <- ggplot(data=bb, aes(x=TEAM_BATTING_H, y=TARGET_WINS)) + 
+  geom_point() + geom_smooth(method = "loess") +
+  xlab("Scatterplot with Best Fit Line")
+
+grid.arrange(bp, hp, sp, layout_matrix=rbind(c(1,2,2),c(1,3,3)))
+```
+
+**Analysis:** There are no missing values. The range and distribution are reasonable.
+
+\newpage
+#### TEAM_BATTING_2B: Number of team doubles
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=6}
+kable(sumBB[sumBB[,1]=="TEAM_BATTING_2B",2:8], row.names=FALSE)
+
+# Boxplot
+bp <- ggplot(bb, aes(x = 1, y = TEAM_BATTING_2B)) + 
+  stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplot") + ylab("") + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+# Density plot
+hp <- ggplot(bb, aes(x = TEAM_BATTING_2B)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") + ylab("") + xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(TEAM_BATTING_2B, na.rm=TRUE)), color="red", linetype="dashed", size=1)
+
+# Scatterplot
+sp <- ggplot(data=bb, aes(x=TEAM_BATTING_2B, y=TARGET_WINS)) + 
+  geom_point() + geom_smooth(method = "loess") +
+  xlab("Scatterplot with Best Fit Line")
+
+grid.arrange(bp, hp, sp, layout_matrix=rbind(c(1,2,2),c(1,3,3)))
+```
+
+**Analysis:** There are no missing values. The range and distribution are reasonable.
+
+\newpage
+#### TEAM_BATTING_3B: Number of team triples
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=6}
+kable(sumBB[sumBB[,1]=="TEAM_BATTING_3B",2:8], row.names=FALSE)
+
+# Boxplot
+bp <- ggplot(bb, aes(x = 1, y = TEAM_BATTING_3B)) + 
+  stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplot") + ylab("") + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+# Density plot
+hp <- ggplot(bb, aes(x = TEAM_BATTING_3B)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") + ylab("") + xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(TEAM_BATTING_3B, na.rm=TRUE)), color="red", linetype="dashed", size=1)
+
+# Scatterplot
+sp <- ggplot(data=bb, aes(x=TEAM_BATTING_3B, y=TARGET_WINS)) + 
+  geom_point() + geom_smooth(method = "loess") +
+  xlab("Scatterplot with Best Fit Line")
+
+grid.arrange(bp, hp, sp, layout_matrix=rbind(c(1,2,2),c(1,3,3)))
+```
+
+**Analysis:** The range and distribution are reasonable. There are 2 records with zero values which is unrealistic for a team in a season. One record (index 1347) has 12 variables with missing values, including the outcome variable. This record will be deleted from the data set. Second record (index 1494) has 7 missing variables, but it does have some recorded values in all categories - batting, pitching and fielding. Zero value for `TEAM_BATTING_3B` can be replaced with the median (because the distribution is right-skewed, median value will provide more realistic estimate).
+
