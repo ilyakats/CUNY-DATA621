@@ -1,20 +1,22 @@
 ---
 title: "DATA 621 Homework 3"
 author: "Ilya Kats"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 library(knitr)
 library(kableExtra)
 library(ggplot2)
-library(gridExtra)
 library(dplyr)
 library(caTools)
 library(pscl)
 library(ROCR)
 library(MASS)
 library(caret)
+library(car)
 
 opts_chunk$set(echo = TRUE)
 ```
@@ -70,7 +72,7 @@ ggplot(crime, aes(x=nox, y=target)) +
 - `rm` - _average number of rooms per dwelling_ - Because this is an average of number of rooms, this is a continous variable.
 - `age` - _proportion of owner-occupied units built prior to 1940_ - There is nothing unusual about this variable; however, it is interesting to note that the mean of 68.37 and median of 77.15 shows that there a large number of pre-war buildings. Not surprising for an old city like Boston.
 - `dis` - _weighted mean of distances to five Boston employment centers_ - Interestingly, majority of observations above the median crime rate are within 5 miles of an employment center (there are only 2 observations over 5 miles away). And there may be some correlation between distance and the target variable.
-- `rad` - _index of accessibility to radial highways_ - This is a discrete variable with 9 different values in the observations (1 through 8 and 24).
+- `rad` - _index of accessibility to radial highways_ - This is a discrete variable with 9 different values in the observations (1 through 8 and 24). The smallest bucket is `rad` value of 7 with 15 observations.
 - `tax` - _full-value property-tax rate per $10,000_
 - `ptratio` - _pupil-teacher ratio by town_
 - `lstat` - _lower status of the population (percent)_
@@ -92,11 +94,11 @@ Below is the correlation matrix for the data set.
 cm <- cor(crime, use="pairwise.complete.obs")
 cm <- round(cm, 2)
 cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
-  cell_spec(x, "html", color = ifelse(x>0.69 | x<(-0.69),"blue","black"))
+  cell_spec(x, "latex", color = ifelse(x>0.69 | x<(-0.69),"blue","black"))
   })
 rownames(cmout) <- colnames(cmout)
 cmout %>%
-  kable("html", escape = F, align = "c", row.names = TRUE) %>%
+  kable("latex", escape = F, align = "c", row.names = TRUE) %>%
   kable_styling("striped", full_width = F)
 ```
 
@@ -108,7 +110,7 @@ pairs(crime)
 
 - Reviewing the scatterplot matrix shows several pairs with possible relationships. Two most prominent are `nox`/`dis` and `lstat`/`medv`. 
 - `rm` and `medv` may have a linear relationship as well. 
-- `rad` and `tax` have a very prominent outlier. Upon further inpection of data we can see that all observations with `rad` value of 24 have a `tax` value of 666, so the outlier is actually multiple observations mapped to the same spot. 
+- `rad` and `tax` have a very prominent outlier. Upon further inpection of data we can see that all observations with `rad` value of 24 have a `tax` value of 666, so the outlier is actually multiple observations mapped to the same spot. Interestingly, all of these obervations also have a `target` value of 1. This variable may warrant closer inspection.
 
 Above data analysis treats `rad` and `chas` as numeric variables; however, treating them as categorical variables may better reflect the nature of those variables, so for modelling they will be converted to factors. 
 
@@ -118,6 +120,8 @@ crime[,'chas'] <- as.factor(crime[,'chas'])
 ```
 
 ## Modelling
+
+The dependent variable, `target`, is binary. For this project it is assumed that observations are independent of each other as there is no reason to believe otherwise.
 
 As the first step, in order to test and compare performance of various models, data was split into training (75%) and testing (25%) sets. The training set includes 350 randomly chosen observations and the testing set includes 116 remaining observations. 
 
@@ -216,11 +220,15 @@ Basic models produced very efficient results. Several other models were attempte
 
 All 3 models generated good overall results, but the third model (_StepAIC_ model) is chosen for its simplicity. It is important to note that even though general parameters between models are close, one may be preferred over the other based on application. For example, the second and third models have similar number of errors (6 and 7); however, the second model has more Type II/False Negative errors and less Type I/False Positive errors than the third model. This difference in sensitivity and specificity may be important for some applications. 
 
+Additionally, one small adjustment to the model is to convert `nox` from parts per 10 million to parts per 100,000. This will help interpret the model coefficients. 
+
 ```{r echo=FALSE, warning=FALSE}
-model <- glm(formula = target ~ zn + nox + rad + tax, family = binomial(link = "logit"), data = crimeTRAIN)
+model <- glm(formula = target ~ zn + I(nox*100) + rad + tax, 
+             family = binomial(link = "logit"), data = crime)
+summary(model)
 ```
 
-## Model Performance
+## Model Performance and Description
 
 #### K-Fold Cross Validation
 
@@ -235,13 +243,310 @@ pred <- predict(model_fit, newdata=crimeTEST)
 confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
 ```
 
+#### Deviance 
+
 Similarly, the deviance table below demonstrated that each variable significantly contributes to the drop in deviance difference.
 
 ```{r echo=FALSE, warning=FALSE}
 anova(model, test="Chisq")
 ```
 
-## APPENDIX: R Script
+#### Variance Inflation Factor
+
+```{r echo=FALSE, warning=FALSE}
+vif(model)
+```
+
+VIFs are reasonable, so that we can assume that there is not much multicollinearity between variables.
+
+#### Coefficients/Odds/Variable Contribution
+
+```{r echo=FALSE, warning=FALSE}
+as.data.frame(exp(model$coefficients))
+```
+
+For `zn`, the coefficient is negative and the odds of having an above median crime rate is 0.9154. Higher `zn`, meaning more large lots, is less likely to increase the crime rate. 
+
+For `nox`, the coefficient is positive and the odds is 1.75, so there is a 75% increase in odds with higher `nox` values. Higher levels of nitrogen oxide indicate more congested neighborhoods. This also seems to correlate stronger with increase in crime rate.
+
+For `tax`, the coefficient is negative and the odds is 0.984. Decrease in crime rate is more likely with the increase of property-tax rates. 
+
+Finally, for `rad` all coefficients are positive except for `rad` value of 2. We have no explanation for values of `rad` variable. Assuming that low values mean higher accessibility to radial highways, we can theorize that living close, but not too close to highways is more likely to decrease the crime rate, but then moving away from highways is more likely to increase it. Odds are difficult to intepret possibly because of outliers (most likely `rad` value of 24).
+
+\newpage
+## APPENDIX A: Evaluation Data Set
+
+```{r echo=FALSE, warning=FALSE}
+eval <- read.csv("crime-evaluation-data_modified.csv")
+eval[,'rad'] <- as.factor(eval[,'rad'])
+eval[,'chas'] <- as.factor(eval[,'chas'])
+
+pred <- predict(model, newdata=eval, type="response")
+
+eval <- cbind(eval, prob=round(pred,4))
+eval <- cbind(eval, predict=round(pred,0))
+kable(eval, row.names=FALSE)
+```
+
+Split between predicted outcomes is illustrated by tables below. 
+
+```{r echo=FALSE, warning=FALSE}
+table(eval$pred)
+table(eval$pred)/sum(table(eval$pred))
+```
+
+\newpage
+## APPENDIX B: R Script
 
 ```{r eval=FALSE}
+# Required libraries
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(caTools)
+library(pscl)
+library(ROCR)
+library(MASS)
+library(caret)
+library(car)
+
+# Import data
+crime <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                             "ilyakats/CUNY-DATA621/master/hw3/",
+                             "crime-training-data_modified.csv")))
+
+# Basic statistic
+nrow(crime); ncol(crime)
+summary(crime)
+
+# Summary table
+sumCrime = data.frame(Variable = character(),
+                      Min = integer(),
+                      Median = integer(),
+                      Mean = double(),
+                      SD = double(),
+                      Max = integer(),
+                      Num_NAs = integer(),
+                      Num_Zeros = integer())
+for (i in 1:13) {
+  sumCrime <- rbind(sumCrime, data.frame(Variable = colnames(crime)[i],
+                                         Min = min(crime[,i], na.rm=TRUE),
+                                         Median = median(crime[,i], na.rm=TRUE),
+                                         Mean = mean(crime[,i], na.rm=TRUE),
+                                         SD = sd(crime[,i], na.rm=TRUE),
+                                         Max = max(crime[,i], na.rm=TRUE),
+                                         Num_NAs = sum(is.na(crime[,i])),
+                                         Num_Zeros = length(which(crime[,i]==0)))
+  )
+}
+colnames(sumCrime) <- c("", "Min", "Median", "Mean", "SD", "Max", 
+                        "Num of NAs", "Num of Zeros")
+sumCrime
+
+# Proportion of target variable
+table(crime$target)
+table(crime$target)/sum(table(crime$target))
+
+# Exploratory plots (repeated for each variable)
+kable(sumCrime[sumCrime[,1]=="zn",2:8], row.names=FALSE)
+
+# Get descriptive plots:
+# Variables: zn indus chas nox rm age dis rad tax ptratio lstat medv target
+v <- "dis" # Variable to view
+pd <- as.data.frame(cbind(crime[, v], crime$target))
+colnames(pd) <- c("X", "Y")
+
+# Boxplot
+bp <- ggplot(pd, aes(x = 1, y = X)) + 
+  stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplot") + ylab("") + 
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+# Density plot
+hp <- ggplot(pd, aes(x = X)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") + 
+  ylab("") + xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(X, na.rm=TRUE)), 
+             color="red", linetype="dashed", size=1)
+
+# Scatterplot
+sp <- ggplot(pd, aes(x=X, y=Y)) + 
+  geom_point() +   
+  stat_smooth(method="glm", method.args=list(family="binomial"), se=FALSE) +
+  xlab("Scatterplot with Logistic Regression Line")
+
+grid.arrange(bp, hp, sp, layout_matrix=rbind(c(1,2,2),c(1,3,3)))
+
+# Correlation matrix
+cm <- cor(crime, use="pairwise.complete.obs")
+cm <- round(cm, 2)
+cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
+  cell_spec(x, "html", color = ifelse(x>0.5 | x<(-0.5),"blue","black"))
+  })
+rownames(cmout) <- colnames(cmout)
+cmout %>%
+  kable("html", escape = F, align = "c", row.names = TRUE) %>%
+  kable_styling("striped", full_width = F)
+
+pairs(crime)
+
+# Force categorical variables to factors
+crime[,'rad'] <- as.factor(crime[,'rad'])
+crime[,'chas'] <- as.factor(crime[,'chas'])
+
+# Split into train and validation sets
+set.seed(88)
+split <- sample.split(crime$target, SplitRatio = 0.75)
+crimeTRAIN <- subset(crime, split == TRUE)
+crimeTEST <- subset(crime, split == FALSE)
+
+# Model 1
+model <- glm (target ~ ., data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
+                type='response')
+cm <- confusionMatrix(as.factor(crimeTEST$target), 
+                      as.factor(ifelse(pred > 0.5,1,0)))
+cm$table
+cm$overall['Accuracy']
+pR2(model) # McFadden R^2
+
+# ROC
+pr <- prediction(pred, crimeTEST$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
+auc <- performance(pr, measure = "auc")
+(auc <- auc@y.values[[1]])
+
+
+# Model 2
+model <- glm (target ~ ., data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+model <- glm (target ~ .-rm, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+model <- glm (target ~ .-rm-chas, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+model <- glm (target ~ .-rm-chas-lstat, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+model <- glm (target ~ .-rm-chas-lstat-indus, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+model <- glm (target ~ .-rm-chas-lstat-indus-zn, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
+                type='response')
+cm <- confusionMatrix(as.factor(crimeTEST$target), 
+                      as.factor(ifelse(pred > 0.5,1,0)))
+cm$table
+cm$overall['Accuracy']
+pR2(model) # McFadden R^2
+
+# ROC
+pr <- prediction(pred, crimeTEST$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
+auc <- performance(pr, measure = "auc")
+(auc <- auc@y.values[[1]])
+
+# Take out 'tax' because it is highly correlated with 'rad'
+model <- glm (target ~ .-tax, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
+                type='response')
+cm <- confusionMatrix(as.factor(crimeTEST$target), 
+                      as.factor(ifelse(pred > 0.5,1,0)))
+cm$table
+cm$overall['Accuracy']
+pR2(model) # McFadden R^2
+
+# ROC
+pr <- prediction(pred, crimeTEST$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
+auc <- performance(pr, measure = "auc")
+(auc <- auc@y.values[[1]])
+# Slight improvement
+
+# Step AIC method
+model <- glm (target ~ ., data = crimeTRAIN, 
+              family = binomial(link="logit"))
+model <- stepAIC(model, trace=TRUE)
+summary(model)
+pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
+                type='response')
+cm <- confusionMatrix(as.factor(crimeTEST$target), 
+                      as.factor(ifelse(pred > 0.5,1,0)))
+cm$table
+cm$overall['Accuracy']
+pR2(model) # McFadden R^2
+
+# ROC
+pr <- prediction(pred, crimeTEST$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
+auc <- performance(pr, measure = "auc")
+(auc <- auc@y.values[[1]])
+
+
+# Bad model for testing of code
+model <- glm (target ~ age+tax, data = crimeTRAIN, 
+              family = binomial(link="logit"))
+summary(model)
+pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
+                type='response')
+cm <- confusionMatrix(as.factor(crimeTEST$target), 
+                      as.factor(ifelse(pred > 0.5,1,0)))
+cm$table
+cm$overall['Accuracy']
+pR2(model) # McFadden R^2
+
+# ROC
+pr <- prediction(pred, crimeTEST$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
+auc <- performance(pr, measure = "auc")
+(auc <- auc@y.values[[1]])
+
+# Selected model
+model <- glm(target ~ zn+I(nox*100)+rad+tax+indus, data = crimeTRAIN, 
+             family = binomial(link = "logit"))
+
+# K-Fold cross validation
+ctrl <- trainControl(method = "repeatedcv", number = 10, 
+                     savePredictions = TRUE)
+model_fit <- train(target ~ zn + nox + rad + tax,  
+                   data=crimeTRAIN, method="glm", 
+                   family="binomial",
+                   trControl = ctrl, tuneLength = 5)
+
+pred <- predict(model_fit, newdata=crimeTEST)
+confusionMatrix(as.factor(crimeTEST$target), 
+                as.factor(ifelse(pred > 0.5,1,0)))
+
+# Deviance residuals
+anova(model, test="Chisq")
+
+# VIF
+vif(model)
+
+# Prediction
+eval <- read.csv("crime-evaluation-data_modified.csv")
+eval[,'rad'] <- as.factor(eval[,'rad'])
+eval[,'chas'] <- as.factor(eval[,'chas'])
+
+pred <- predict(model, newdata=eval, type="response")
+
+eval <- cbind(eval, prob=round(pred,4))
+eval <- cbind(eval, predict=round(pred,0))
+kable(eval, row.names=FALSE)
 ```

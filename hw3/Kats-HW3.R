@@ -9,6 +9,7 @@ library(pscl)
 library(ROCR)
 library(MASS)
 library(caret)
+library(car)
 
 # Import data
 crime <- read.csv(url("https://raw.githubusercontent.com/ilyakats/CUNY-DATA621/master/hw3/crime-training-data_modified.csv"))
@@ -190,7 +191,7 @@ auc <- performance(pr, measure = "auc")
 (auc <- auc@y.values[[1]])
 
 # Selected model
-model <- glm(target ~ zn+nox+rad+tax+indus, data = crimeTRAIN, family = binomial(link = "logit"))
+model <- glm(target ~ zn+I(nox*100)+rad+tax+indus, data = crimeTRAIN, family = binomial(link = "logit"))
 
 # K-Fold cross validation
 ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
@@ -202,3 +203,17 @@ confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
 
 # Deviance residuals
 anova(model, test="Chisq")
+
+# VIF
+vif(model)
+
+# Prediction
+eval <- read.csv("crime-evaluation-data_modified.csv")
+eval[,'rad'] <- as.factor(eval[,'rad'])
+eval[,'chas'] <- as.factor(eval[,'chas'])
+
+pred <- predict(model, newdata=eval, type="response")
+
+eval <- cbind(eval, prob=round(pred,4))
+eval <- cbind(eval, predict=round(pred,0))
+kable(eval, row.names=FALSE)
