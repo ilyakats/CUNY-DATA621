@@ -83,7 +83,11 @@ cmout %>%
   kable("html", escape = F, align = "c", row.names = TRUE) %>%
   kable_styling("striped", full_width = F)
 
-crimeBackup <- crime
+pairs(crime)
+
+# Force categorical variables to factors
+crime[,'rad'] <- as.factor(crime[,'rad'])
+crime[,'chas'] <- as.factor(crime[,'chas'])
 
 # Split into train and validation sets
 set.seed(88)
@@ -185,3 +189,16 @@ plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
 auc <- performance(pr, measure = "auc")
 (auc <- auc@y.values[[1]])
 
+# Selected model
+model <- glm(target ~ zn+nox+rad+tax+indus, data = crimeTRAIN, family = binomial(link = "logit"))
+
+# K-Fold cross validation
+ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
+model_fit <- train(target ~ zn + nox + rad + tax,  data=crimeTRAIN, method="glm", family="binomial",
+                 trControl = ctrl, tuneLength = 5)
+
+pred <- predict(model_fit, newdata=crimeTEST)
+confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
+
+# Deviance residuals
+anova(model, test="Chisq")
