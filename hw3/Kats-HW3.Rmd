@@ -58,7 +58,7 @@ kable(sumCrime, row.names=FALSE)
 
 #### Independent Variables
 
-- `zn`- _proportion of residential land zoned for large lots (over 25,000 square feet)_ - 339 out of 466 (or about 76%) of observations have a value of 0. It is possible that majority of neighborhoods will not have any residential land zoned for large lots. Therefore, it is likely that 0 represents a valid value rather than a missing one. 
+- `zn` - _proportion of residential land zoned for large lots (over 25,000 square feet)_ - 339 out of 466 (or about 76%) of observations have a value of 0. It is possible that majority of neighborhoods will not have any residential land zoned for large lots. Therefore, it is likely that 0 represents a valid value rather than a missing one. 
 - `indus` - _proportion of non-retail business acres per suburb_
 - `chas` - _a dummy variable for whether the suburb borders the Charles River (1) or not (0)_ - 433 out of 466 (or about 92.9%) of observations have a value of 0. Even though the Charles River is a promimnent feature of the Boston area, it is quite reasonable to assume that most neighborhoods do not border the river.
 - `nox` - _nitrogen oxides concentration (parts per 10 million)_ - Looking at the scatterplot there seems to be some correlation between the nitrogen oxides concentration and the target variable.
@@ -70,8 +70,8 @@ ggplot(crime, aes(x=nox, y=target)) +
 ```
 
 - `rm` - _average number of rooms per dwelling_ - Because this is an average of number of rooms, this is a continous variable.
-- `age` - _proportion of owner-occupied units built prior to 1940_ - There is nothing unusual about this variable; however, it is interesting to note that the mean of 68.37 and median of 77.15 shows that there a large number of pre-war buildings. Not surprising for an old city like Boston.
-- `dis` - _weighted mean of distances to five Boston employment centers_ - Interestingly, majority of observations above the median crime rate are within 5 miles of an employment center (there are only 2 observations over 5 miles away). And there may be some correlation between distance and the target variable.
+- `age` - _proportion of owner-occupied units built prior to 1940_ - There is nothing unusual about this variable; however, it is interesting to note that the mean of 68.37 and median of 77.15 shows that there is a large number of pre-war buildings. Not surprising for an old city like Boston.
+- `dis` - _weighted mean of distances to five Boston employment centers_ - Majority of observations above the median crime rate are within 5 miles of an employment center (there are only 2 observations over 5 miles away). And there may be some correlation between distance and the target variable.
 - `rad` - _index of accessibility to radial highways_ - This is a discrete variable with 9 different values in the observations (1 through 8 and 24). The smallest bucket is `rad` value of 7 with 15 observations.
 - `tax` - _full-value property-tax rate per $10,000_
 - `ptratio` - _pupil-teacher ratio by town_
@@ -86,7 +86,7 @@ ggplot(crime, aes(x=nox, y=target)) +
 
 Below is the correlation matrix for the data set. 
 
-- There is a very high correlation (0.91) between `tax` and `rad`. It seems that the higher the highway accessibility is, the higher property taxes are. Alternatively, radial highways and higher property taxes may signify suburbs while lack of radial highways may imply inner city (with possibly poorer, lower taxed properties).
+- There is a very high correlation (0.91) between `tax` and `rad`. Meaning behind `rad` values/categories is not explicitly specified. It may be that the higher the highway accessibility is, the higher property taxes are. Alternatively, radial highways and higher property taxes may signify suburbs while lack of radial highways may imply inner city (with possibly poorer, lower taxed properties).
 - `nox` has the highest correlation with the target variable, but `age`, `dis`, `rad` and `tax` are also fairly highly correlated to `target` (above 0.6).
 - The following pairs have correlation at or above 0.7 (or below -0.7 in case of negative correlation): `nox`/`indus`, `dis`/`indus`, `tax`/`indus`,  `age`/`nox`, `dis`/`nox`, `medv`/`rm`, `dis`/`age` and `medv`/`lstat`.
 
@@ -110,7 +110,7 @@ pairs(crime)
 
 - Reviewing the scatterplot matrix shows several pairs with possible relationships. Two most prominent are `nox`/`dis` and `lstat`/`medv`. 
 - `rm` and `medv` may have a linear relationship as well. 
-- `rad` and `tax` have a very prominent outlier. Upon further inpection of data we can see that all observations with `rad` value of 24 have a `tax` value of 666, so the outlier is actually multiple observations mapped to the same spot. Interestingly, all of these obervations also have a `target` value of 1. This variable may warrant closer inspection.
+- `rad` and `tax` have a very prominent outlier. Further inspection of data shows that all observations with `rad` value of 24 have a `tax` value of 666, so the outlier is actually multiple observations mapped to the same spot. Interestingly, all of these obervations also have a `target` value of 1. This combination may warrant closer inspection.
 
 Above data analysis treats `rad` and `chas` as numeric variables; however, treating them as categorical variables may better reflect the nature of those variables, so for modelling they will be converted to factors. 
 
@@ -134,7 +134,7 @@ crimeTEST <- subset(crime, split == FALSE)
 
 #### Model 1: Variables with High Correlation to Target Variable
 
-The first model includes 5 variables with the highest correlation coefficients when compared agains the target variable. This will allow the testing of model performance evaluation methods as well as corresponding R code.
+The first model includes 5 variables with the highest correlation coefficients when compared agains the target variable. This simple model will allow for testing methodology as well as corresponding R code.
 
 ```{r echo=FALSE, warning=FALSE}
 model <- glm (target ~ nox+age+dis+rad+tax, data = crimeTRAIN, family = binomial(link="logit"))
@@ -146,7 +146,7 @@ accuracy <- cm$overall['Accuracy']
 R2 <- pR2(model)["McFadden"]
 ```
 
-Model summary and confusion matrix of running the model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 123.66. Additionally, consider the ROC curve for this model.
+Model summary and confusion matrix of running this model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 123.66. Additionally, consider the ROC curve for this model.
 
 ```{r echo=FALSE, warning=FALSE}
 pr <- prediction(pred, crimeTEST$target)
@@ -171,7 +171,7 @@ accuracy <- cm$overall['Accuracy']
 R2 <- pR2(model)["McFadden"]
 ```
 
-Model summary and confusion matrix of running the model against test data are above. The accuracy rate (`r accuracy`) is good and the McFadden R^2 value (`r R2`) is also high. AIC value is 128.1. Additionally, consider the ROC curve for this model.
+Model summary and confusion matrix of running this model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 128.1. Additionally, consider the ROC curve for this model.
 
 ```{r echo=FALSE, warning=FALSE}
 pr <- prediction(pred, crimeTEST$target)
@@ -199,7 +199,7 @@ accuracy <- cm$overall['Accuracy']
 R2 <- pR2(model)["McFadden"]
 ```
 
-Model summary and confusion matrix of running the model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 118.99. Additionally, consider the ROC curve for this model.
+Model summary and confusion matrix of running this model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 118.99. Additionally, consider the ROC curve for this model.
 
 ```{r echo=FALSE, warning=FALSE}
 pr <- prediction(pred, crimeTEST$target)
@@ -214,7 +214,7 @@ The third model has the best (lowest) AIC value (better). Accuracy is the same a
 
 #### Additional Models
 
-Basic models produced very efficient results. Several other models were attempted, but they did not produce significant improvements and therefore simplier, easier to interpret basic models were preferred. Other models included variable transformations and variable interactions. Since this project does not deals with critical and sensitive data with high cost of errors, such as medical or national security, the accuracy of the basic models is deemed acceptable.
+Basic models produced very efficient results. Several other models were attempted, but they did not produce significant improvements and therefore simplier, easier to interpret basic models were preferred. Other models included variable transformations and variable interactions. Since this project does not deals with critical and sensitive data with high cost of errors, such as medical or national security projects may, the accuracy of the basic models is deemed acceptable.
 
 ## Model Selection
 
@@ -259,6 +259,15 @@ vif(model)
 
 VIFs are reasonable, so that we can assume that there is not much multicollinearity between variables.
 
+#### Histogram of Predicted Probabilities
+
+Distribution of predicted probabilities generated by running all training data through the model shows that the model is predicting 0 or 1 with high probability. There are few instances where probability shows less certainty in the selected outcome.
+
+```{r echo=FALSE, warning=FALSE}
+pred <- predict(model, newdata = subset(crime, select=c(1:12)), type='response')
+hist(pred, breaks=100, xlab="Predicted Probability of Outcome", main="")
+```
+
 #### Coefficients/Odds/Variable Contribution
 
 ```{r echo=FALSE, warning=FALSE}
@@ -267,11 +276,11 @@ as.data.frame(exp(model$coefficients))
 
 For `zn`, the coefficient is negative and the odds of having an above median crime rate is 0.9154. Higher `zn`, meaning more large lots, is less likely to increase the crime rate. 
 
-For `nox`, the coefficient is positive and the odds is 1.75, so there is a 75% increase in odds with higher `nox` values. Higher levels of nitrogen oxide indicate more congested neighborhoods. This also seems to correlate stronger with increase in crime rate.
+For `nox`, the coefficient is positive and the odds is 1.75, so there is a 75% increase in odds with higher `nox` values. Higher levels of nitrogen oxide indicate more congested neighborhoods. It is possible to theorize that more urban, congested areas are more likely to have higher crime than suburban areas.
 
 For `tax`, the coefficient is negative and the odds is 0.984. Decrease in crime rate is more likely with the increase of property-tax rates. 
 
-Finally, for `rad` all coefficients are positive except for `rad` value of 2. We have no explanation for values of `rad` variable. Assuming that low values mean higher accessibility to radial highways, we can theorize that living close, but not too close to highways is more likely to decrease the crime rate, but then moving away from highways is more likely to increase it. Odds are difficult to intepret possibly because of outliers (most likely `rad` value of 24).
+Finally, for `rad` all coefficients are positive except for `rad` value of 2. There is no explicit explanation for values of `rad` variable. Assuming that low values mean higher accessibility to radial highways, it is possible to theorize that living close, but not too close to highways is more likely to decrease the crime rate, but then moving away from highways is more likely to increase it. Odds are difficult to intepret possibly because of outliers (most likely `rad` value of 24).
 
 \newpage
 ## APPENDIX A: Evaluation Data Set
