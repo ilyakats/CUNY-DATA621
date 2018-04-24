@@ -317,33 +317,53 @@ ggplot(data = ins, aes(JOB, EDUCATION)) +
 # LINEAR MODEL
 
 insLM <- ins[ins$TARGET_FLAG==1,]
-dim(insLM)
+dim(insLMtrain)
+
 
 split <- sample.split(insLM$TARGET_AMT, SplitRatio = 0.75)
 insLMtrain <- subset(insLM, split == TRUE)
 insLMtest <- subset(insLM, split == FALSE)
 
-lmModel <- lm(TARGET_AMT ~ .-TARGET_FLAG,data = insLMtrain)
+lmModel <- lm(log(TARGET_AMT) ~ .-TARGET_FLAG,data = insLMtrain)
 summary(lmModel)
+plot(lmModel)
 lmModel <- stepAIC(lmModel, trace=TRUE, direction='both')
 lmModel <- lm(TARGET_AMT ~ PARENT1+MSTATUS+BLUEBOOK+CAR_AGE,data = insLMtrain)
-lmModel <- lm(TARGET_AMT ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+lmModel <- lm(log(TARGET_AMT) ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
                 MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
                 TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
                 URBANICITY, data = insLMtrain)
 lmModel <- lm(TARGET_AMT ~ BLUEBOOK, data = insLMtrain)
-lmModel <- lm(I(TARGET_AMT^0.6) ~ BLUEBOOK, data = insLMtrain)
+lmModel <- lm(I((TARGET_AMT^(-0.1)-1)/(-0.1)) ~ BLUEBOOK, data = insLMtrain)
 lmModel <- lm(TARGET_AMT ~ KIDSDRIV + BLUEBOOK, data = insLMtrain)
 lmModel <- lm(TARGET_AMT ~ log(BLUEBOOK), data = insLMtrain)
-lmModel <- lm(TARGET_AMT ~ log(BLUEBOOK)+CAR_AGE, data = insLMtrain)
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK + CAR_AGE, data = insLMtrain)
+lmModel <- lm(formula = log(TARGET_AMT) ~ BLUEBOOK + RED_CAR + MVR_PTS + 
+                URBANICITY, data = insLMtrain)
+
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel)
+plot(fitted(lmModel), residuals(lmModel))
+wts <- 1/(lmModel$residuals^2)
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, weights = wts)
+summary(lmModel)
+plot(fitted(lmModel), residuals(lmModel))
+
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, weights = 1/insLMtrain$BLUEBOOK^6)
+
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, weights = log(insLMtrain$BLUEBOOK))
+summary(lmModel)
+
+lmModel <- rlm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, psi = psi.huber)
 
 pred <- predict(lmModel, newdata=insLMtest)
-rmse(insLMtest$TARGET_AMT, pred)
+rmse(log(insLMtest$TARGET_AMT), pred)
 
-cbind(insLMtest$TARGET_AMT, pred)
+cbind(log(insLMtest$TARGET_AMT), pred)
 boxcox(lmModel)
-insLMtrain <- insLMtrain[insLMtrain$TARGET_AMT <10000,]
+insLMtrain <- insLMtrain[insLMtrain$TARGET_AMT >100,]
 plot(insLMtrain$BLUEBOOK, insLMtrain$TARGET_AMT)
+plot(insLMtrain$BLUEBOOK, log(insLMtrain$TARGET_AMT))
 
 plot(lmModel$residuals, ylab="Residuals")
 abline(h=0)
@@ -354,7 +374,10 @@ abline(h=0)
 qqnorm(lmModel$residuals)
 qqline(lmModel$residuals)
 
-plot(insLMtrain$BLUEBOOK, insLMtrain$TARGET_AMT)
+ggplot(insLMtrain, aes(x=insLMtrain$BLUEBOOK, y=log(insLMtrain$TARGET_AMT))) + 
+  geom_point() +   
+  stat_smooth(method="lm") +
+  xlab("Scatterplot with Logistic Regression Line")
 
 # Prediction
 eval <- read.csv("crime-evaluation-data_modified.csv")
