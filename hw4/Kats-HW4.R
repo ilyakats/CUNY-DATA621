@@ -11,9 +11,11 @@ library(ROCR)
 library(MASS)
 library(caret)
 library(car)
+library(Metrics)
 
 # Import data
-ins <- read.csv(url("https://raw.githubusercontent.com/ilyakats/CUNY-DATA621/master/hw4/insurance_training_data.csv"))
+ins <- read.csv(url("https://raw.githubusercontent.com/ilyakats/CUNY-DATA621/master/hw4/insurance_training_data.csv"), 
+                na.strings=c("","NA"))
 
 # Basic statistic
 nrow(ins); ncol(ins)
@@ -171,9 +173,18 @@ levels(ins$RED_CAR)[match("yes",levels(ins$RED_CAR))] <- "Yes"
 ins$OLDCLAIM <- as.numeric(gsub('[$,]', '', ins$OLDCLAIM)) # Convert from Factor to Numeric
 levels(ins$URBANICITY)[match("Highly Urban/ Urban",levels(ins$URBANICITY))] <- "Urban"
 levels(ins$URBANICITY)[match("z_Highly Rural/ Rural",levels(ins$URBANICITY))] <- "Rural"
+ins[ins$CAR_AGE<1,'CAR_AGE'] <- NA
 
 # Drop index column
 ins <- ins[-c(1)]
+
+# Get only complete cases
+nrow(ins[complete.cases(ins), ])
+nrow(ins)
+# Cuts down from 8,161 to 6,045
+ins <- ins[complete.cases(ins), ]
+
+insBackup <- ins
 
 # Summary table
 sumIns = data.frame(Variable = character(),
@@ -250,15 +261,30 @@ split <- sample.split(ins$TARGET_FLAG, SplitRatio = 0.75)
 insTRAIN <- subset(ins, split == TRUE)
 insTEST <- subset(ins, split == FALSE)
 
-# Modelling
+# BINARY REGRESSION MODEL
+
+# Modelling - Basic model
 model <- glm (TARGET_FLAG ~ .-TARGET_AMT, data = insTRAIN, family = binomial(link="logit"))
 summary(model)
-model <- stepAIC(model, trace=TRUE)
 pred <- predict(model, newdata=subset(insTEST, select=c(1:25)), type='response')
 cm <- confusionMatrix(as.factor(insTEST$TARGET_FLAG), as.factor(ifelse(pred > 0.5,1,0)))
 cm$table
 cm$overall['Accuracy']
 pR2(model) # McFadden R^2
+
+# Stepwise approach
+model <- stepAIC(model, trace=TRUE, direction='both')
+
+# Model tweaking
+model <- glm(formula = factor(TARGET_FLAG) ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+               MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
+               TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
+               URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
+
+model <- glm(formula = TARGET_FLAG ~ factor(KIDSDRIV) + INCOME + PARENT1 + HOME_VAL + 
+               MSTATUS + EDUCATION + JOB + TRAVTIME + CAR_USE + BLUEBOOK + 
+               TIF + CAR_TYPE + OLDCLAIM + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
+               URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
 
 # ROC
 pr <- prediction(pred, insTEST$TARGET_FLAG)
@@ -267,100 +293,68 @@ plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
 auc <- performance(pr, measure = "auc")
 (auc <- auc@y.values[[1]])
 
-
-# Model 2
-model <- glm (target ~ ., data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas-lstat, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas-lstat-indus, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas-lstat-indus-zn, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-
-# Take out 'tax' because it is highly correlated with 'rad'
-model <- glm (target ~ .-tax, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-# Slight improvement
-
-# Step AIC method
-model <- glm (target ~ ., data = crimeTRAIN, family = binomial(link="logit"))
-model <- stepAIC(model, trace=TRUE)
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-
-
-# Bad model for testing of code
-model <- glm (target ~ age+tax, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-
-# Selected model
-model <- glm(target ~ zn+I(nox*100)+rad+tax+indus, data = crimeTRAIN, family = binomial(link = "logit"))
-
 # K-Fold cross validation
 ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
-model_fit <- train(target ~ zn + nox + rad + tax,  data=crimeTRAIN, method="glm", family="binomial",
+model_fit <- train(factor(TARGET_FLAG) ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+                     MSTATUS + EDUCATION + JOB + TRAVTIME + CAR_USE + BLUEBOOK + 
+                     TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
+                     URBANICITY,  data=insTRAIN, method="glm", family="binomial",
                  trControl = ctrl, tuneLength = 5)
 
-pred <- predict(model_fit, newdata=crimeTEST)
-confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
+pred <- predict(model_fit, newdata=insTEST)
+confusionMatrix(as.factor(insTEST$TARGET_FLAG), pred)
 
 # Deviance residuals
 anova(model, test="Chisq")
 
 # VIF
 vif(model)
+# Take out JOB 
+ins$JOB <- factor(ins$JOB,levels(ins$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)]) # Reorder levels
+ggplot(data = ins, aes(JOB, EDUCATION)) +
+  geom_jitter()
+
+# LINEAR MODEL
+
+insLM <- ins[ins$TARGET_FLAG==1,]
+dim(insLM)
+
+split <- sample.split(insLM$TARGET_AMT, SplitRatio = 0.75)
+insLMtrain <- subset(insLM, split == TRUE)
+insLMtest <- subset(insLM, split == FALSE)
+
+lmModel <- lm(TARGET_AMT ~ .-TARGET_FLAG,data = insLMtrain)
+summary(lmModel)
+lmModel <- stepAIC(lmModel, trace=TRUE, direction='both')
+lmModel <- lm(TARGET_AMT ~ PARENT1+MSTATUS+BLUEBOOK+CAR_AGE,data = insLMtrain)
+lmModel <- lm(TARGET_AMT ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+                MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
+                TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
+                URBANICITY, data = insLMtrain)
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK, data = insLMtrain)
+lmModel <- lm(I(TARGET_AMT^0.6) ~ BLUEBOOK, data = insLMtrain)
+lmModel <- lm(TARGET_AMT ~ KIDSDRIV + BLUEBOOK, data = insLMtrain)
+lmModel <- lm(TARGET_AMT ~ log(BLUEBOOK), data = insLMtrain)
+lmModel <- lm(TARGET_AMT ~ log(BLUEBOOK)+CAR_AGE, data = insLMtrain)
+
+pred <- predict(lmModel, newdata=insLMtest)
+rmse(insLMtest$TARGET_AMT, pred)
+
+cbind(insLMtest$TARGET_AMT, pred)
+boxcox(lmModel)
+insLMtrain <- insLMtrain[insLMtrain$TARGET_AMT <10000,]
+plot(insLMtrain$BLUEBOOK, insLMtrain$TARGET_AMT)
+
+plot(lmModel$residuals, ylab="Residuals")
+abline(h=0)
+
+plot(lmModel$fitted.values, lmModel$residuals, xlab="Fitted Values", ylab="Residuals")
+abline(h=0)
+
+qqnorm(lmModel$residuals)
+qqline(lmModel$residuals)
+
+plot(insLMtrain$BLUEBOOK, insLMtrain$TARGET_AMT)
 
 # Prediction
 eval <- read.csv("crime-evaluation-data_modified.csv")
