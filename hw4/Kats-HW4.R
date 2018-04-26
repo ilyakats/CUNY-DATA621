@@ -3,7 +3,6 @@ library(knitr)
 library(kableExtra)
 library(gridExtra)
 library(ggplot2)
-
 library(dplyr)
 library(caTools)
 library(pscl)
@@ -12,9 +11,12 @@ library(MASS)
 library(caret)
 library(car)
 library(Metrics)
+library(quantreg)
 
 # Import data
-ins <- read.csv(url("https://raw.githubusercontent.com/ilyakats/CUNY-DATA621/master/hw4/insurance_training_data.csv"), 
+ins <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                           "ilyakats/CUNY-DATA621/master/hw4/",
+                           "insurance_training_data.csv")),
                 na.strings=c("","NA"))
 
 # Basic statistic
@@ -105,7 +107,7 @@ table(ins$CAR_USE)
 # BLUEBOOK
 class(ins$BLUEBOOK)
 summary(ins$BLUEBOOK)
-# Numeric - Ranges from $1,500 tp $69,740
+# Numeric - Ranges from $1,500 to $69,740
 
 # TIF - Time in Force
 class(ins$TIF)
@@ -173,16 +175,21 @@ levels(ins$RED_CAR)[match("yes",levels(ins$RED_CAR))] <- "Yes"
 ins$OLDCLAIM <- as.numeric(gsub('[$,]', '', ins$OLDCLAIM)) # Convert from Factor to Numeric
 levels(ins$URBANICITY)[match("Highly Urban/ Urban",levels(ins$URBANICITY))] <- "Urban"
 levels(ins$URBANICITY)[match("z_Highly Rural/ Rural",levels(ins$URBANICITY))] <- "Rural"
-ins[ins$CAR_AGE<1,'CAR_AGE'] <- NA
+ins$JOB <- factor(ins$JOB,levels(ins$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)]) # Reorder levels
 
 # Drop index column
 ins <- ins[-c(1)]
 
+insFull <- ins
+
+ins <- ins[complete.cases(ins), ]
+ins[ins$CAR_AGE<1,'CAR_AGE'] <- NA
+ins <- ins[complete.cases(ins), ]
+# Cuts down from 8,161 to 6,045
+
 # Get only complete cases
 nrow(ins[complete.cases(ins), ])
 nrow(ins)
-# Cuts down from 8,161 to 6,045
-ins <- ins[complete.cases(ins), ]
 
 insBackup <- ins
 
@@ -219,7 +226,7 @@ table(ins$TARGET_FLAG)/sum(table(ins$TARGET_FLAG))
 # INDEX, TARGET_FLAG, TARGET_AMT, KIDSDRIV, AGE, HOMEKIDS, YOJ, INCOME, PARENT1, HOME_VAL, 
 # MSTATUS, SEX, EDUCATION, JOB, TRAVTIME, CAR_USE, BLUEBOOK, TIF, CAR_TYPE, RED_CAR, 
 # OLDCLAIM, CLM_FREQ, REVOKED, MVR_PTS, CAR_AGE, URBANICITY, 
-v <- "TIF" # Variable to view
+v <- "TARGET_AMT" # Variable to view
 pd <- as.data.frame(cbind(ins[, v], ins$TARGET_FLAG))
 colnames(pd) <- c("X", "Y")
 
@@ -253,7 +260,7 @@ cmout %>%
   kable("html", escape = F, align = "c", row.names = TRUE) %>%
   kable_styling("striped", full_width = F)
 
-pairs(crime)
+pairs(ins)
 
 # Split into train and validation sets
 set.seed(88)
@@ -273,17 +280,12 @@ cm$overall['Accuracy']
 pR2(model) # McFadden R^2
 
 # Stepwise approach
-model <- stepAIC(model, trace=TRUE, direction='both')
+model <- stepAIC(model, trace=FALSE, direction='both')
 
 # Model tweaking
-model <- glm(formula = factor(TARGET_FLAG) ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
-               MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
-               TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
-               URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
-
-model <- glm(formula = TARGET_FLAG ~ factor(KIDSDRIV) + INCOME + PARENT1 + HOME_VAL + 
+model <- glm(formula = TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
                MSTATUS + EDUCATION + JOB + TRAVTIME + CAR_USE + BLUEBOOK + 
-               TIF + CAR_TYPE + OLDCLAIM + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
+               TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + 
                URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
 
 # ROC
@@ -295,14 +297,13 @@ auc <- performance(pr, measure = "auc")
 
 # K-Fold cross validation
 ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
-model_fit <- train(factor(TARGET_FLAG) ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
-                     MSTATUS + EDUCATION + JOB + TRAVTIME + CAR_USE + BLUEBOOK + 
-                     TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
+model_fit <- train(TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+                     MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
+                     TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + 
                      URBANICITY,  data=insTRAIN, method="glm", family="binomial",
-                 trControl = ctrl, tuneLength = 5)
-
+                   trControl = ctrl, tuneLength = 5)
 pred <- predict(model_fit, newdata=insTEST)
-confusionMatrix(as.factor(insTEST$TARGET_FLAG), pred)
+confusionMatrix(as.factor(insTEST$TARGET_FLAG), as.factor(ifelse(pred > 0.5,1,0)))
 
 # Deviance residuals
 anova(model, test="Chisq")
@@ -310,61 +311,42 @@ anova(model, test="Chisq")
 # VIF
 vif(model)
 # Take out JOB 
-ins$JOB <- factor(ins$JOB,levels(ins$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)]) # Reorder levels
 ggplot(data = ins, aes(JOB, EDUCATION)) +
   geom_jitter()
+model <- glm(formula = TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+               MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
+               TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + 
+               URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
 
 # LINEAR MODEL
 
+insLM <- ins
 insLM <- ins[ins$TARGET_FLAG==1,]
-dim(insLMtrain)
 
-
+# Split into training and testing sets
 split <- sample.split(insLM$TARGET_AMT, SplitRatio = 0.75)
 insLMtrain <- subset(insLM, split == TRUE)
 insLMtest <- subset(insLM, split == FALSE)
 
-lmModel <- lm(log(TARGET_AMT) ~ .-TARGET_FLAG,data = insLMtrain)
+# Initial models
+lmModel <- lm(TARGET_AMT ~ .-TARGET_FLAG,data = insLMtrain)
 summary(lmModel)
-plot(lmModel)
-lmModel <- stepAIC(lmModel, trace=TRUE, direction='both')
-lmModel <- lm(TARGET_AMT ~ PARENT1+MSTATUS+BLUEBOOK+CAR_AGE,data = insLMtrain)
-lmModel <- lm(log(TARGET_AMT) ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
-                MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
-                TIF + CAR_TYPE + factor(CLM_FREQ) + REVOKED + MVR_PTS + 
-                URBANICITY, data = insLMtrain)
-lmModel <- lm(TARGET_AMT ~ BLUEBOOK, data = insLMtrain)
-lmModel <- lm(I((TARGET_AMT^(-0.1)-1)/(-0.1)) ~ BLUEBOOK, data = insLMtrain)
-lmModel <- lm(TARGET_AMT ~ KIDSDRIV + BLUEBOOK, data = insLMtrain)
-lmModel <- lm(TARGET_AMT ~ log(BLUEBOOK), data = insLMtrain)
-lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK + CAR_AGE, data = insLMtrain)
-lmModel <- lm(formula = log(TARGET_AMT) ~ BLUEBOOK + RED_CAR + MVR_PTS + 
-                URBANICITY, data = insLMtrain)
-
-lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+lmModel <- stepAIC(lmModel, trace=FALSE, direction='both')
 summary(lmModel)
-plot(fitted(lmModel), residuals(lmModel))
-wts <- 1/(lmModel$residuals^2)
-lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, weights = wts)
+lmModel <- lm(TARGET_AMT ~ PARENT1 + MSTATUS + BLUEBOOK + OLDCLAIM + CLM_FREQ + REVOKED + JOB,data = insLMtrain)
 summary(lmModel)
-plot(fitted(lmModel), residuals(lmModel))
-
-lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, weights = 1/insLMtrain$BLUEBOOK^6)
-
-lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, weights = log(insLMtrain$BLUEBOOK))
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK + OLDCLAIM + CLM_FREQ + REVOKED,data = insLMtrain)
+summary(lmModel)
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK + CAR_AGE + CAR_TYPE,data = insLMtrain)
+summary(lmModel)
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK,data = insLMtrain)
 summary(lmModel)
 
-lmModel <- rlm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain, psi = psi.huber)
-
+# Calculate RMSE
 pred <- predict(lmModel, newdata=insLMtest)
-rmse(log(insLMtest$TARGET_AMT), pred)
+rmse(insLMtest$TARGET_AMT, pred)
 
-cbind(log(insLMtest$TARGET_AMT), pred)
-boxcox(lmModel)
-insLMtrain <- insLMtrain[insLMtrain$TARGET_AMT >100,]
-plot(insLMtrain$BLUEBOOK, insLMtrain$TARGET_AMT)
-plot(insLMtrain$BLUEBOOK, log(insLMtrain$TARGET_AMT))
-
+# Model plots
 plot(lmModel$residuals, ylab="Residuals")
 abline(h=0)
 
@@ -374,18 +356,63 @@ abline(h=0)
 qqnorm(lmModel$residuals)
 qqline(lmModel$residuals)
 
-ggplot(insLMtrain, aes(x=insLMtrain$BLUEBOOK, y=log(insLMtrain$TARGET_AMT))) + 
-  geom_point() +   
-  stat_smooth(method="lm") +
-  xlab("Scatterplot with Logistic Regression Line")
+boxcox(lmModel)
+
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel)
+pred <- predict(lmModel, newdata=insLMtest)
+rmse(log(insLMtest$TARGET_AMT), pred)
+lmModel2 <- rlm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel2)
+pred <- predict(lmModel2, newdata=insLMtest)
+rmse(log(insLMtest$TARGET_AMT), pred)
+lmModel3 <- rq(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel3)
+pred <- predict(lmModel3, newdata=insLMtest)
+rmse(log(insLMtest$TARGET_AMT), pred)
+
+
+plot(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+abline(lmModel)
+abline(lmModel2, col="red")
+abline(lmModel3, col="blue")
+legend("topright", inset=0.05, bty="n",
+       legend=c("lm fit", "rlm fit", "rq fit"),
+       lty=c(1,1,1),
+       col=c("black", "red", "blue"))
 
 # Prediction
-eval <- read.csv("crime-evaluation-data_modified.csv")
-eval[,'rad'] <- as.factor(eval[,'rad'])
-eval[,'chas'] <- as.factor(eval[,'chas'])
+eval <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                            "ilyakats/CUNY-DATA621/master/hw4/",
+                            "insurance-evaluation-data.csv")),
+                 na.strings=c("","NA"))
+results <- eval[,1]
+eval$INCOME <- as.numeric(gsub('[$,]', '', eval$INCOME)) # Convert income from Factor to Numeric
+eval$HOME_VAL <- as.numeric(gsub('[$,]', '', eval$HOME_VAL)) # Convert home value from Factor to Numeric
+levels(eval$MSTATUS)[match("z_No",levels(eval$MSTATUS))] <- "No" # Remove 'z_'
+levels(eval$SEX)[match("z_F",levels(eval$SEX))] <- "F" # Remove 'z_'
+levels(eval$EDUCATION)[match("z_High School",levels(eval$EDUCATION))] <- "High School" # Remove 'z_'
+eval$EDUCATION <- factor(eval$EDUCATION,levels(eval$EDUCATION)[c(1,5,2:4)]) # Reorder levels
+levels(eval$JOB)[match("z_Blue Collar",levels(eval$JOB))] <- "Blue Collar" # Remove 'z_'
+eval$BLUEBOOK <- as.numeric(gsub('[$,]', '', eval$BLUEBOOK)) # Convert value from Factor to Numeric
+levels(eval$CAR_TYPE)[match("z_SUV",levels(eval$CAR_TYPE))] <- "SUV" # Remove 'z_'
+levels(eval$RED_CAR)[match("no",levels(eval$RED_CAR))] <- "No"
+levels(eval$RED_CAR)[match("yes",levels(eval$RED_CAR))] <- "Yes"
+eval$OLDCLAIM <- as.numeric(gsub('[$,]', '', eval$OLDCLAIM)) # Convert from Factor to Numeric
+levels(eval$URBANICITY)[match("Highly Urban/ Urban",levels(eval$URBANICITY))] <- "Urban"
+levels(eval$URBANICITY)[match("z_Highly Rural/ Rural",levels(eval$URBANICITY))] <- "Rural"
+eval$JOB <- factor(eval$JOB,levels(eval$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)]) # Reorder levels
+eval <- eval[-c(1)]
 
 pred <- predict(model, newdata=eval, type="response")
+results <- cbind(results, prob=round(pred,4))
+results <- cbind(results, predict=round(pred,0))
 
-eval <- cbind(eval, prob=round(pred,4))
-eval <- cbind(eval, predict=round(pred,0))
-kable(eval, row.names=FALSE)
+pred <- predict(lmModel, newdata=eval, type="response")
+results <- cbind(results, exp(pred))
+results <- as.data.frame(results)
+
+results[results$predict==0 & !is.na(results$predict),'V4'] <- NA
+results[is.na(results$predict),'V4'] <- NA
+colnames(results) <- c("Index", "TARGET_FLAG Prob.", "TARGET_FLAG", "TARGET_AMT")
+pander(head(results, 100))

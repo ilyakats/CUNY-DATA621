@@ -1,5 +1,5 @@
 ---
-title: "DATA 621 Homework 3"
+title: "DATA 621 Homework 4"
 author: "Ilya Kats"
 output:
   pdf_document: default
@@ -17,291 +17,543 @@ library(ROCR)
 library(MASS)
 library(caret)
 library(car)
+library(Metrics)
+library(quantreg)
+library(pander)
 
 opts_chunk$set(echo = TRUE)
 ```
 
 ## Summary
 
-This report covers an attempt to build a binary logistic regression model to predict whether the crime rate is above the median crime rate. The model is based on a data set containing information on crime for various Boston neighborhoods. 
+The goal of this project is to build two models - one binary regression model to predict whether a vehicle will be involved in a crash and a linear regression model to predict possible payout. 
+
+Binary model generated fairly good results. With the accuracy of close to 80% it is noticeably better than just randomly guessing the outcome. Car insurance business is an important, big and complex business, so this accuracy may not be high enough in real-world situation (where auto insurance companies almost definitely maintain significant data science groups). However, this result is reasonable for this report. 
+
+Linear model proved highly problematic. The most significant predictor for payout amount is the Blue Book value. This is reasonable. However, with $R^2$ value of 0.005, this model barely explains any variance in the outcome variable. Adding other variables that should influence the payout amount, such as `CAR_AGE`, did not have a significant effect.
+
+The model was created using only onservations for vehicles involved in a crash (`TARGET_FLAG`==1). It is possible to create a linear regression model on all data, without this limitation. $R^2$ is significantly improved. In some tests, $R^2$ was about 0.27. However, I believe this explains the fit for observations with \$0 payout (vehicles not involved in a crash) and does not help fit the actual payouts any better. 
+
+Looking at the relationship between Blue Book value and payout amount, there is a high amount of variability. There are many observations with low value, but high payout (too many to discount as outliers). This leads me to believe that some critical data is missing in order to accurately predict the payout. Such variables as severity of crash, whether the vehicle was totaled or not, number of vehicles involved in the crash should have a significant influence on payout amount.
 
 ## Data Exploration
 
-The data set includes 466 observations with 12 variables (excluding the target variable).
+The data set includes 8,161 observations with 24 variables (excluding the target variable).
 
 #### Summary of Variables
 
 ```{r echo=FALSE, warning=FALSE}
-crime <- read.csv("crime-training-data_modified.csv")
-sumCrime = data.frame(Variable = character(),
-                      Min = integer(),
-                      Median = integer(),
-                      Mean = double(),
-                      SD = double(),
-                      Max = integer(),
-                      Num_NAs = integer(),
-                      Num_Zeros = integer())
-for (i in 1:13) {
-  sumCrime <- rbind(sumCrime, data.frame(Variable = colnames(crime)[i],
-                                   Min = min(crime[,i], na.rm=TRUE),
-                                   Median = median(crime[,i], na.rm=TRUE),
-                                   Mean = mean(crime[,i], na.rm=TRUE),
-                                   SD = sd(crime[,i], na.rm=TRUE),
-                                   Max = max(crime[,i], na.rm=TRUE),
-                                   Num_NAs = sum(is.na(crime[,i])),
-                                   Num_Zeros = length(which(crime[,i]==0)))
-                 )
+ins <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                           "ilyakats/CUNY-DATA621/master/hw4/",
+                           "insurance_training_data.csv")),
+                na.strings=c("","NA"))
+
+ins$INCOME <- as.numeric(gsub('[$,]', '', ins$INCOME)) # Convert income from Factor to Numeric
+ins$HOME_VAL <- as.numeric(gsub('[$,]', '', ins$HOME_VAL)) # Convert home value from Factor to Numeric
+levels(ins$MSTATUS)[match("z_No",levels(ins$MSTATUS))] <- "No" # Remove 'z_'
+levels(ins$SEX)[match("z_F",levels(ins$SEX))] <- "F" # Remove 'z_'
+levels(ins$EDUCATION)[match("z_High School",levels(ins$EDUCATION))] <- "High School" # Remove 'z_'
+ins$EDUCATION <- factor(ins$EDUCATION,levels(ins$EDUCATION)[c(1,5,2:4)]) # Reorder levels
+levels(ins$JOB)[match("z_Blue Collar",levels(ins$JOB))] <- "Blue Collar" # Remove 'z_'
+ins$BLUEBOOK <- as.numeric(gsub('[$,]', '', ins$BLUEBOOK)) # Convert value from Factor to Numeric
+levels(ins$CAR_TYPE)[match("z_SUV",levels(ins$CAR_TYPE))] <- "SUV" # Remove 'z_'
+levels(ins$RED_CAR)[match("no",levels(ins$RED_CAR))] <- "No"
+levels(ins$RED_CAR)[match("yes",levels(ins$RED_CAR))] <- "Yes"
+ins$OLDCLAIM <- as.numeric(gsub('[$,]', '', ins$OLDCLAIM)) # Convert from Factor to Numeric
+levels(ins$URBANICITY)[match("Highly Urban/ Urban",levels(ins$URBANICITY))] <- "Urban"
+levels(ins$URBANICITY)[match("z_Highly Rural/ Rural",levels(ins$URBANICITY))] <- "Rural"
+ins <- ins[-c(1)]
+ins$JOB <- factor(ins$JOB,levels(ins$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)]) # Reorder levels
+
+vars <- data.frame(Variable = c("KIDSDRIV",
+                                "AGE",
+                                "HOMEKIDS",
+                                "YOJ",
+                                "INCOME",
+                                "PARENT1",
+                                "HOME_VAL",
+                                "MSTATUS",
+                                "SEX",
+                                "EDUCATION",
+                                "JOB",
+                                "TRAVTIME",
+                                "CAR_USE",
+                                "BLUEBOOK",
+                                "TIF",
+                                "CAR_TYPE",
+                                "RED_CAR",
+                                "OLDCLAIM",
+                                "CLM_FREQ",
+                                "REVOKED",
+                                "MVR_PTS",
+                                "CAR_AGE",
+                                "URBANICITY"
+                                ), 
+                   Type = c("Integer", "Integer", "Integer", "Integer", "Numeric",
+                            "Factor", "Numeric", "Factor", "Factor", "Factor",
+                            "Factor", "Integer", "Factor", "Numeric", "Integer",
+                            "Factor", "Factor", "Numeric", "Integer", "Factor", 
+                            "Integer", "Integer", "Factor"
+                            ), 
+                   Description = c("No of children driving.",
+                                   "Age of driver.",
+                                   "No of children at home.",
+                                   "Years on the job.",
+                                   "Income.",
+                                   "Single parent flag.",
+                                   "Home value.",
+                                   "Married flag.",
+                                   "Gender.",
+                                   "Maximum education level.",
+                                   "Job category.",
+                                   "Distance to work.",
+                                   "Vehicle use.",
+                                   "Vehicle value.",
+                                   "Time in force.",
+                                   "Vehicle type.",
+                                   "Red car flag.",
+                                   "Total payout of claims.",
+                                   "No of claims (past 5 years).",
+                                   "Revoked license flag.",
+                                   "Motor vehicle record points.",
+                                   "Vehicle age.",
+                                   "Home/work area."
+                                   ), 
+                   Comments = c("Ranges from 0 to 4.",
+                                "Ranges from 16 to 81. Contains 6 NAs.",
+                                "Ranges from 0 to 5.",
+                                paste0("Ranges from 0 to 23. ",
+                                       "Contains 454 NAs (about 5.56% of all observations)."),
+                                paste0("Ranges from $0 to $367,000. ",
+                                       "Contains 445 NAs (about 5.45% of all observations). ",
+                                       "Was converted to numeric by removing ",
+                                       "dollar signs and commas."),
+                                "Values: No, Yes.",
+                                paste0("Ranges from $0 to $885,000. ",
+                                       "Contains 464 NAs (about 5.69% of all observations). ",
+                                       "Was converted to numeric by removing ",
+                                       "dollar signs and commas."),
+                                "Values: Yes, No.",
+                                "Values: M, F.",
+                                "Values: <High School, High School, Bachelors, Masters, PhD.",
+                                paste0("Values: [Blank], Clerical, Doctor, Home Maker, Lawyer,",
+                                       " Manager, Professional, Student, Blue Collar."),
+                                "Ranges from 5 to 142.",
+                                "Values: Commercial, Private.",
+                                paste0("Ranges from $1,500 to $69,740. Was converted to ",
+                                       "numeric by removing dollar signs and commas."),
+                                "Ranges from 1 to 25.",
+                                "Values: Minivan, Panel Truck, Pickup, Sports Car, Van, SUV.",
+                                "Values: No, Yes",
+                                paste0("Ranges from $0 to $57,040. Was converted to numeric ",
+                                       "by removing dollar signs and commas."),
+                                "Ranges from 0 to 5.",
+                                "Values: No, Yes.",
+                                "Ranges from 0 to 13.",
+                                paste0("Ranges from -3 to 28. Contains 510 NAs (about ",
+                                       "6.25% of all observations)."),
+                                "Values: Urban, Rural."
+                                )
+                   )
+
+pander(vars, justify="left", split.cell=20)
+```
+
+The table below shows summary of numeric variables. 
+
+```{r echo=FALSE, warning=FALSE}
+sumIns = data.frame(Variable = character(),
+                    Min = integer(),
+                    Median = integer(),
+                    Mean = double(),
+                    SD = double(),
+                    Max = integer(),
+                    Num_NAs = integer(),
+                    Num_Zeros = integer())
+for (i in c(3:7,9,14,16,17,20,21,23,24)) {
+  sumIns <- rbind(sumIns, data.frame(Variable = colnames(ins)[i],
+                                     Min = min(ins[,i], na.rm=TRUE),
+                                     Median = median(ins[,i], na.rm=TRUE),
+                                     Mean = mean(ins[,i], na.rm=TRUE),
+                                     SD = sd(ins[,i], na.rm=TRUE),
+                                     Max = max(ins[,i], na.rm=TRUE),
+                                     Num_NAs = sum(is.na(ins[,i])),
+                                     Num_Zeros = length(which(ins[,i]==0)))
+  )
 }
-colnames(sumCrime) <- c("Variable", "Min", "Median", "Mean", "SD", "Max", "Num of NAs", "Num of Zeros")
-kable(sumCrime, row.names=FALSE)
+colnames(sumIns) <- c("Variable", "Min", "Median", "Mean", "SD", "Max", "Num of NAs", "Num of Zeros")
+pander(sumIns)
 ```
 
-#### Independent Variables
+In the table above we can see a significant number of observations with value of 0. There is a logical explanation that these observations are valid:
 
-- `zn` - _proportion of residential land zoned for large lots (over 25,000 square feet)_ - 339 out of 466 (or about 76%) of observations have a value of 0. It is possible that majority of neighborhoods will not have any residential land zoned for large lots. Therefore, it is likely that 0 represents a valid value rather than a missing one. 
-- `indus` - _proportion of non-retail business acres per suburb_
-- `chas` - _a dummy variable for whether the suburb borders the Charles River (1) or not (0)_ - 433 out of 466 (or about 92.9%) of observations have a value of 0. Even though the Charles River is a promimnent feature of the Boston area, it is quite reasonable to assume that most neighborhoods do not border the river.
-- `nox` - _nitrogen oxides concentration (parts per 10 million)_ - Looking at the scatterplot there seems to be some correlation between the nitrogen oxides concentration and the target variable.
+- `KIDSDRIV` and `HOMEKIDS`: households without children
+- `YOJ` and `INCOME`: unemployed individuals
+- `HOME_VAL`: renters
+- `OLDCLAIM`, `CLM_FREQ` and `MVR_PTS`: safe drivers with no claims or DMV points
+
+#### Hangling _NAs_
+
+Several variables - `AGE`, `YOJ`, `INCOME`, `HOME_VAL`, `CAR_AGE` - contained some `NA` values. The number seemed significant; however, given the large number of observations it was safer to remove incomplete cases. 
+
+Additionally, `JOB` contained some blank values. It is possible that the blank value represented a certain category, for example _Unemployed_; however, without any indication whether it is missing value or specific category, it was treated similarly to `NA` values.
+
+Additionally, `CAR_AGE` had 4 values that appeared to be errors. One observations had `CAR_AGE` as -3 and three observations had `CAR_AGE` as 0. The negative value is clearly wrong; however, it is possible to make a case that 0 is a valid value (new car). Given low number of 0 values and high number of 1 for that variable, it is likely that 0 is an error and 1 represents a new car. The 4 affected records have were removed.
 
 ```{r echo=FALSE, warning=FALSE}
-ggplot(crime, aes(x=nox, y=target)) + 
-  geom_point() +
-  stat_smooth(method="glm", method.args=list(family="binomial"), se=FALSE)
+ins <- ins[complete.cases(ins), ]
+ins[ins$CAR_AGE<1,'CAR_AGE'] <- NA
+ins <- ins[complete.cases(ins), ]
 ```
 
-- `rm` - _average number of rooms per dwelling_ - Because this is an average of number of rooms, this is a continous variable.
-- `age` - _proportion of owner-occupied units built prior to 1940_ - There is nothing unusual about this variable; however, it is interesting to note that the mean of 68.37 and median of 77.15 shows that there is a large number of pre-war buildings. Not surprising for an old city like Boston.
-- `dis` - _weighted mean of distances to five Boston employment centers_ - Majority of observations above the median crime rate are within 5 miles of an employment center (there are only 2 observations over 5 miles away). And there may be some correlation between distance and the target variable.
-- `rad` - _index of accessibility to radial highways_ - This is a discrete variable with 9 different values in the observations (1 through 8 and 24). The smallest bucket is `rad` value of 7 with 15 observations.
-- `tax` - _full-value property-tax rate per $10,000_
-- `ptratio` - _pupil-teacher ratio by town_
-- `lstat` - _lower status of the population (percent)_
-- `medv` - _median value of owner-occupied homes in \$1000s_
+After these steps 2,120 observations were removed leaving 6,041 observations. As stated above, although the number of remove observations is significant, there are enough observations left to perform the analysis. For categorical variables, there are enough examples for each category.
 
-#### Target/Dependent Variable
+#### Additional Details
 
-- `target` - _whether the crime rate is above the median crime rate (1) or not (0)_ - There are 237 observation with `target` value of 0 and 229 observations with `target` value of 1 making it about 50/50 split, or more precisely there are **50.86% of 0s and 49.14% of 1s**.
+- Boxplots and histograms were inspected for all variable in order to see any anomalies.
+- Multiple values were prefixed with text 'z_', which was removed from all observations. Affected variables are `MSTATUS`, `EDUCATION`, `JOB`, `CAR_TYPE` and `URBANICITY`.
+- Index column present in the data set has been removed. 
+- Levels for `EDUCATION` have been re-ordered to follow the most common order: _<High School_, _High School_, _Bachelors_, _Masters_, and _PhD_.
+- Levels for `JOB` have been re-ordered to follow general order from low-paying to high-paying occupations: _Student_, _Blue Collar_, _Home Maker_, _Clerical_, _Professional_, _Manager_, _Lawyer_, and _Doctor_.
+- Counts of observations for possible values of `PARENT1`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$PARENT1))
+```
+- Counts of observations for possible values of `MSTATUS`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$MSTATUS))
+```
+- Counts of observations for possible values of `SEX`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$SEX))
+```
+- Counts of observations for possible values of `EDUCATION`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$EDUCATION))
+```
+- Counts of observations for possible values of `JOB`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$JOB), split.cell=8)
+```
+- Counts of observations for possible values of `CAR_USE`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$CAR_USE))
+```
+- Counts of observations for possible values of `CAR_TYPE`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$CAR_TYPE))
+```
+- Counts of observations for possible values of `RED_CAR`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$RED_CAR))
+```
+- Counts of observations for possible values of `REVOKED`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$REVOKED))
+```
+- Counts of observations for possible values of `URBANICITY`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$URBANICITY))
+```
+- Counts of observations for possible values of `KIDSDRIV`:
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$KIDSDRIV))
+```
+- Counts of observations for possible values of `HOMEKIDS`
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$HOMEKIDS))
+```
+- Counts of observations for possible values of `CLM_FREQ`
+```{r echo=FALSE, warning=FALSE}
+pander(table(ins$CLM_FREQ))
+```
+- As shown above there are several values for `KIDSDRIV`, `HOMEKIDS` and `CLM_FREQ` with few observations. Specifically, there are only 2 observations with 4 children driving and only 11 obserations with 5 children at home or with 5 claims within the past 5 years. It is important to note that these three variables are treated as numeric rather than categorical.
 
-#### Correlation Matrix
+#### Target/Dependent Variable `TARGET_FLAG`
 
-Below is the correlation matrix for the data set. 
+Target variable for the binary regression model represents a flag whether a vehicle was involved in a crash. There are 4,440 observation with `TARGET_FLAG` value of 0 and 1,601 observations with `TARGET_FLAG` value of 1 making it about 75/25 split, or more precisely there are **73.5% of 0s and 26.5% of 1s**.
 
-- There is a very high correlation (0.91) between `tax` and `rad`. Meaning behind `rad` values/categories is not explicitly specified. It may be that the higher the highway accessibility is, the higher property taxes are. Alternatively, radial highways and higher property taxes may signify suburbs while lack of radial highways may imply inner city (with possibly poorer, lower taxed properties).
-- `nox` has the highest correlation with the target variable, but `age`, `dis`, `rad` and `tax` are also fairly highly correlated to `target` (above 0.6).
-- The following pairs have correlation at or above 0.7 (or below -0.7 in case of negative correlation): `nox`/`indus`, `dis`/`indus`, `tax`/`indus`,  `age`/`nox`, `dis`/`nox`, `medv`/`rm`, `dis`/`age` and `medv`/`lstat`.
+#### Target/Dependent Variable `TARGET_AMT`
+
+Target variable for the linear regression model represents the cost if a vehicle was involved in a crash. The value is presented only for observations with `TARGET_FLAG` of 1. Distribution of `TARGET_AMT` has a long right tail. There are no missing values.
 
 ```{r echo=FALSE, warning=FALSE}
-cm <- cor(crime, use="pairwise.complete.obs")
-cm <- round(cm, 2)
-cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
-  cell_spec(x, "latex", color = ifelse(x>0.69 | x<(-0.69),"blue","black"))
-  })
-rownames(cmout) <- colnames(cmout)
-cmout %>%
-  kable("latex", escape = F, align = "c", row.names = TRUE) %>%
-  kable_styling("striped", full_width = F)
+amt <- data.frame(Min = min(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'], na.rm=TRUE),
+                  Median = median(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'], na.rm=TRUE),
+                  Mean = mean(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'], na.rm=TRUE),
+                  SD = sd(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'], na.rm=TRUE),
+                  Max = max(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'], na.rm=TRUE),
+                  Num_NAs = sum(is.na(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'])),
+                  Num_Zeros = length(which(ins[ins$TARGET_FLAG==1, 'TARGET_AMT']==0)))
+pander(amt)
+
+ggplot(data=ins[ins$TARGET_FLAG==1,], aes(x = TARGET_AMT)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white", binwidth = 1000) +
+  geom_density(alpha=.2, fill="#FF6666") + ylab("") + xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(ins[ins$TARGET_FLAG==1,'TARGET_AMT'])), 
+             color="red", linetype="dashed", size=1)
 ```
 
-#### Scatterplot Matrix
+## Modelling: Generalized Linear Model
 
-```{r echo=FALSE, warning=FALSE}
-pairs(crime)
-```
+The first model will be used to predict whether a vehicle will be involved in a crash. The dependent variable, `TARGET_FLAG`, is binary. For this project it is assumed that observations are independent of each other as there is no reason to believe otherwise.
 
-- Reviewing the scatterplot matrix shows several pairs with possible relationships. Two most prominent are `nox`/`dis` and `lstat`/`medv`. 
-- `rm` and `medv` may have a linear relationship as well. 
-- `rad` and `tax` have a very prominent outlier. Further inspection of data shows that all observations with `rad` value of 24 have a `tax` value of 666, so the outlier is actually multiple observations mapped to the same spot. Interestingly, all of these obervations also have a `target` value of 1. This combination may warrant closer inspection.
-
-Above data analysis treats `rad` and `chas` as numeric variables; however, treating them as categorical variables may better reflect the nature of those variables, so for modelling they will be converted to factors. 
-
-```{r echo=FALSE, warning=FALSE}
-crime[,'rad'] <- as.factor(crime[,'rad'])
-crime[,'chas'] <- as.factor(crime[,'chas'])
-```
-
-## Modelling
-
-The dependent variable, `target`, is binary. For this project it is assumed that observations are independent of each other as there is no reason to believe otherwise.
-
-As the first step, in order to test and compare performance of various models, data was split into training (75%) and testing (25%) sets. The training set includes 350 randomly chosen observations and the testing set includes 116 remaining observations. 
+To test the accuracy of the model the main data set is split into training and testing data sets. The training set includes 75% of randomly chosen observations (4,531) while the testing set includes remaining 25% (1,510).
 
 ```{r echo=FALSE, warning=FALSE}
 set.seed(88)
-split <- sample.split(crime$target, SplitRatio = 0.75)
-crimeTRAIN <- subset(crime, split == TRUE)
-crimeTEST <- subset(crime, split == FALSE)
+split <- sample.split(ins$TARGET_FLAG, SplitRatio = 0.75)
+insTRAIN <- subset(ins, split == TRUE)
+insTEST <- subset(ins, split == FALSE)
 ```
 
-#### Model 1: Variables with High Correlation to Target Variable
-
-The first model includes 5 variables with the highest correlation coefficients when compared agains the target variable. This simple model will allow for testing methodology as well as corresponding R code.
+The starting point is a model that includes all independent variables. It has AIC value of 4085.5 and accuracy of 79.47%. Summary is below.
 
 ```{r echo=FALSE, warning=FALSE}
-model <- glm (target ~ nox+age+dis+rad+tax, data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-accuracy <- cm$overall['Accuracy']
-R2 <- pR2(model)["McFadden"]
-```
-
-Model summary and confusion matrix of running this model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 123.66. Additionally, consider the ROC curve for this model.
-
-```{r echo=FALSE, warning=FALSE}
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")@y.values[[1]]
-```
-
-Area under the curve is `r auc`.
-
-#### Model 2: All Variables
-
-The second model includes all 12 available independent variables.
-
-```{r echo=FALSE, warning=FALSE}
-model <- glm (target ~ ., data = crimeTRAIN, family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-accuracy <- cm$overall['Accuracy']
-R2 <- pR2(model)["McFadden"]
-```
-
-Model summary and confusion matrix of running this model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 128.1. Additionally, consider the ROC curve for this model.
-
-```{r echo=FALSE, warning=FALSE}
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")@y.values[[1]]
-```
-
-Area under the curve is `r auc`. 
-
-Comparing to the first model AIC has slightly increased (worse), but accuracy, McFadden R^2 and AUC all also slightly increased (better). 
-
-#### Model 3: _StepAIC_ Method
-
-The third model starts with all 12 available independent variables, but then drops them one by one using the stepwise algorithm.
-
-```{r echo=FALSE, warning=FALSE}
-model <- glm (target ~ ., data = crimeTRAIN, family = binomial(link="logit"))
-model <- stepAIC(model, trace=FALSE, direction="both")
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-accuracy <- cm$overall['Accuracy']
-R2 <- pR2(model)["McFadden"]
-```
-
-Model summary and confusion matrix of running this model against test data are above. The accuracy rate (`r accuracy`) is very good and the McFadden R^2 value (`r R2`) is also high. AIC value is 118.99. Additionally, consider the ROC curve for this model.
-
-```{r echo=FALSE, warning=FALSE}
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")@y.values[[1]]
-```
-
-Area under the curve is `r auc`. 
-
-The third model has the best (lowest) AIC value (better). Accuracy is the same as for the first model (and slightly lower than the second model). AUC is lower, but very close to the AUC value for the second model. Finally, McFadden R^2 falls between the first and second models, but the change is also very small. 
-
-#### Additional Models
-
-Basic models produced very efficient results. Several other models were attempted, but they did not produce significant improvements and therefore simplier, easier to interpret basic models were preferred. Other models included variable transformations and variable interactions. Since this project does not deals with critical and sensitive data with high cost of errors, such as medical or national security projects may, the accuracy of the basic models is deemed acceptable.
-
-## Model Selection
-
-All 3 models generated good overall results, but the third model (_StepAIC_ model) is chosen for its simplicity. It is important to note that even though general parameters between models are close, one may be preferred over the other based on application. For example, the second and third models have similar number of errors (6 and 7); however, the second model has more Type II/False Negative errors and less Type I/False Positive errors than the third model. This difference in sensitivity and specificity may be important for some applications. 
-
-Additionally, one small adjustment to the model is to convert `nox` from parts per 10 million to parts per 100,000. This will help interpret the model coefficients. 
-
-```{r echo=FALSE, warning=FALSE}
-model <- glm(formula = target ~ zn + I(nox*100) + rad + tax, 
-             family = binomial(link = "logit"), data = crime)
+model <- glm (TARGET_FLAG ~ .-TARGET_AMT, data = insTRAIN, family = binomial(link="logit"))
 summary(model)
 ```
 
-## Model Performance and Description
+Running this model through the stepwise algorithm (`stepAIC` from the `MASS` package), removed `AGE`, `HOMEKIDS`, `YOJ`, `SEX`, `RED_CAR` and `CAR_AGE`. AIC is reduced slightly to 4078.2 and accuracy is improved very slightly to 79.54%.
 
-#### K-Fold Cross Validation
-
-To assess the performance of selected model, below are results of 10-fold cross-validation. The model performs as expected.
+`INCOME` and `HOME_VAL` are very right-skewed. To make results more normal, they are log-transformed (adding 1 to make sure that log-transformation is possible for 0 values). The new model again has slightly lower AIC of 4073.2 and slightly higher accuracy at 79.73%.
 
 ```{r echo=FALSE, warning=FALSE}
-ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
-model_fit <- train(target ~ zn + nox + rad + tax,  data=crimeTRAIN, 
-                   method="glm", family="binomial",
-                   trControl = ctrl, tuneLength = 5)
-pred <- predict(model_fit, newdata=crimeTEST)
-confusionMatrix(as.factor(crimeTEST$target), as.factor(ifelse(pred > 0.5,1,0)))
+model <- glm(formula = TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+               MSTATUS + EDUCATION + JOB + TRAVTIME + CAR_USE + BLUEBOOK + 
+               TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + 
+               URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
+summary(model)
 ```
 
-#### Deviance 
-
-Similarly, the deviance table below demonstrated that each variable significantly contributes to the drop in deviance difference.
-
-```{r echo=FALSE, warning=FALSE}
-anova(model, test="Chisq")
-```
-
-#### Variance Inflation Factor
+Checking this model using various evaluation methods, a potential issue was discovered with variance-inflation (using `vif` in the `car` package). 
 
 ```{r echo=FALSE, warning=FALSE}
 vif(model)
 ```
 
-VIFs are reasonable, so that we can assume that there is not much multicollinearity between variables.
-
-#### Histogram of Predicted Probabilities
-
-Distribution of predicted probabilities generated by running all training data through the model shows that the model is predicting 0 or 1 with high probability. There are few instances where probability shows less certainty in the selected outcome.
+The value for `JOB` is very high (although when adjusted for degrees of freedom is does not appear to be problematic). The value for `EDUCATION` is also fairly high. Comparing these two variables we can see possible correlation between them. 
 
 ```{r echo=FALSE, warning=FALSE}
-pred <- predict(model, newdata = subset(crime, select=c(1:12)), type='response')
-hist(pred, breaks=100, xlab="Predicted Probability of Outcome", main="")
+ggplot(data = ins, aes(JOB, EDUCATION)) +
+  geom_jitter()
 ```
 
-#### Coefficients/Odds/Variable Contribution
+This is quite logical. Some occupations, such as doctor or lawyer, require a graduate level degree. At the same time lower levels of education are more connect to blue collar work rather than professional work. `JOB` was removed from the model.
+
+#### Final Model
+
+The formula for the final generalized linear model is `TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + URBANICITY`. AIC is 4107.
 
 ```{r echo=FALSE, warning=FALSE}
-as.data.frame(exp(model$coefficients))
+model <- glm(formula = TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+               MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
+               TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + 
+               URBANICITY, family = binomial(link = "logit"), data = insTRAIN)
+summary(model)
+
+pred <- predict(model, newdata=subset(insTEST, select=c(1:25)), type='response')
+cm <- confusionMatrix(as.factor(insTEST$TARGET_FLAG), as.factor(ifelse(pred > 0.5,1,0)))
+pander(cm$table)
+#cm$overall['Accuracy']
+pander(pR2(model)) # McFadden R^2
 ```
 
-For `zn`, the coefficient is negative and the odds of having an above median crime rate is 0.9154. Higher `zn`, meaning more large lots, is less likely to increase the crime rate. 
+Accuracy is 79.80% which is noticeably higher than a flip of a coin. McFadden $R^2$ is 0.2254. Area under the curve (see plot below) is 0.8022.
 
-For `nox`, the coefficient is positive and the odds is 1.75, so there is a 75% increase in odds with higher `nox` values. Higher levels of nitrogen oxide indicate more congested neighborhoods. It is possible to theorize that more urban, congested areas are more likely to have higher crime than suburban areas.
+```{r echo=FALSE, warning=FALSE}
+pr <- prediction(pred, insTEST$TARGET_FLAG)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
+auc <- performance(pr, measure = "auc")
+```
 
-For `tax`, the coefficient is negative and the odds is 0.984. Decrease in crime rate is more likely with the increase of property-tax rates. 
+Results below are for K-fold cross validation using 10 iterations. They hold up against results observed with simple training.
 
-Finally, for `rad` all coefficients are positive except for `rad` value of 2. There is no explicit explanation for values of `rad` variable. Assuming that low values mean higher accessibility to radial highways, it is possible to theorize that living close, but not too close to highways is more likely to decrease the crime rate, but then moving away from highways is more likely to increase it. Odds are difficult to intepret possibly because of outliers (most likely `rad` value of 24).
+```{r echo=FALSE, warning=FALSE}
+ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
+model_fit <- train(TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + log(HOME_VAL+1) + 
+                     MSTATUS + EDUCATION + TRAVTIME + CAR_USE + BLUEBOOK + 
+                     TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + 
+                     URBANICITY,  data=insTRAIN, method="glm", family="binomial",
+                   trControl = ctrl, tuneLength = 5)
+pred <- predict(model_fit, newdata=insTEST)
+confusionMatrix(as.factor(insTEST$TARGET_FLAG), as.factor(ifelse(pred > 0.5,1,0)))
+```
+
+Analyzing deviance (using `anova`) shows that all terms are significant although significance for `MSTATUS` and `TRAVTIME` are less significant than all other terms.
+
+```{r echo=FALSE, warning=FALSE}
+anova(model, test="Chisq")
+```
+
+Variance inflation factors are low for all variables, so correlation is not high. 
+
+```{r echo=FALSE, warning=FALSE}
+vif(model)
+```
+
+#### Coefficient Analysis 
+
+Looking at the model coefficients, the following variables make the crash more likely:
+
+- Higher number of children driving
+- Single parents and unmarried individuals
+- Higher commuting distance
+- License revocation within the past 7 years
+- Higher number of claims within the past 5 years
+- Higher number of DMV points
+
+Additional points: 
+
+- Commercial vehicle use is more likely to result in a crash than private. 
+- Rural environment is less likely to result in a crash than urban. 
+- Individuals who have been customers longer are less likely to have a crash.
+- Higher Blue Book value makes it less likely to result in a crash.
+- Education makes it less likely to result in a crash.
+- Higher income and home value make it less likely to result in a crash.
+- Car type is hard to evaluate, but generally various types make it more likely to have a crash (to different degrees).
+- Interestingly, larger previous payout make it less likely to result in a crash. 
+
+Most of these findings are in line with theoretical effect. Some coefficients help clarify it. 
+
+## Modelling: Linear Model
+
+Linear modelling is used to predict the amount of the payout in case of a crash (`TARGET_AMT`). **Only observations where a crash has occurred (`TARGET_FLAG`==1) are used in training the linear model.** If there is no crash, payout will not be needed. As such if observations without a crash are included in the model, they may skew the results.
+
+Isolating all observations with a reported crash, leaves 1,601 observations. 
+
+Again the data is divided into a training set (75%; 1,200 observations) and a testing set (25%; 401 observations).
+
+```{r echo=FALSE, warning=FALSE}
+insLM <- ins[ins$TARGET_FLAG==1,]
+split <- sample.split(insLM$TARGET_AMT, SplitRatio = 0.75)
+insLMtrain <- subset(insLM, split == TRUE)
+insLMtest <- subset(insLM, split == FALSE)
+```
+
+The following 5 models were built and compared. 
+
+- **Model 1**: All independent variables.
+- **Model 2**: Model 1 optimized using stepwise algorithm. This dropped all variables except `PARENT1`, `MSTATUS`, `BLUEBOOK`, `OLDCLAIM`, `CLM_FREQ`, `REVOKED` and `JOB`.
+- **Model 3**: Some variables from model 2 dropping less signficant ones. This model includes `BLUEBOOK`, `OLDCLAIM`, `CLM_FREQ` and `REVOKED`.
+- **Model 4**: Variables that theoretically should have an effect: `BLUEBOOK`, `CAR_AGE`, `CAR_TYPE`.
+- **Model 5**: Only `BLUEBOOK`. This variable seems the most significant.
+
+```{r echo=FALSE, warning=FALSE}
+lmModels <- data.frame(Model = c("Model 1","Model 2","Model 3","Model 4","Model 5"), 
+                       R2 = c(0.01808, 0.02218, 0.01366, 0.01351, 0.01202), 
+                       RMSE = c(8416.4, 8367.4, 8343.9, 8372.7, 8336.2))
+colnames(lmModels) <- c("Model", "Adjusted R^2", "Root-Mean Square Error")
+pander(lmModels)
+```
+
+Even though Model 5 has the worst adjusted $R^2$, it has the best RMSE value (accuracy in prediction using the testing set). It is also the simplest model using only Blue Book value. Further analysis will be based on this model.
+
+```{r echo=FALSE, warning=FALSE}
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK,data = insLMtrain)
+summary(lmModel)
+```
+
+Looking at the Q-Q plot, it is clear that there is a significant number of outliers at the higher range. This looks very problematic.
+
+```{r echo=FALSE, warning=FALSE}
+qqnorm(lmModel$residuals)
+qqline(lmModel$residuals)
+```
+
+Consider Box-Cox transformation (plot below is generated using `boxcox` from the `MASS` package). 
+
+```{r echo=FALSE, warning=FALSE}
+boxcox(lmModel)
+```
+
+if lambda is picked to be 0, then target variable should be log-transformed. 
+
+```{r echo=FALSE, warning=FALSE}
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK,data = insLMtrain)
+summary(lmModel)
+```
+
+This drastically reduced already low adjusted $R^2$. However, Q-Q plot is improved. It is still not without issues, but noticeably better. Additionally, looking at the residual plots, there seems to be independence of observations. Another problem area is constant variance when plotting fitted values vs residuals. 
+
+```{r echo=FALSE, warning=FALSE}
+qqnorm(lmModel$residuals)
+qqline(lmModel$residuals)
+
+plot(lmModel$residuals, ylab="Residuals")
+abline(h=0)
+
+plot(lmModel$fitted.values, lmModel$residuals, xlab="Fitted Values", ylab="Residuals")
+abline(h=0)
+```
+
+#### Robust/Quantile Regression
+
+Looking at the scatterplot of `BLUEBOOK` vs `log(TARGET_AMT)`, there is a lot of variance and a lot of outliers. It is possible that some points are leverage points that interfere with the model. Two additional model were built in an effort to account for that.
+
+The first model was created using robust regression (`rlm` in the `MASS` package). The second model was created using  quantile regression (`rq` in the `quantreg` package). 
+
+Original model has RMSE of 0.7815. RLM model very slightly improves it to 0.7811. Finally, RQ model also very slightly improves it to 0.7771. Fits for all three models are presented in the scatterplot below.
+
+```{r echo=FALSE, warning=FALSE}
+lmModel2 <- rlm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+lmModel3 <- rq(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+
+plot(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+abline(lmModel)
+abline(lmModel2, col="red")
+abline(lmModel3, col="blue")
+legend("topright", inset=0.05, bty="n",
+       legend=c("lm fit", "rlm fit", "rq fit"),
+       lty=c(1,1,1),
+       col=c("black", "red", "blue"))
+```
+
+Variation between model is small, so this approach did not generate significant improvement. Please see the Summary section in the beginning of the report for more analysis of linear model results.
 
 \newpage
 ## APPENDIX A: Evaluation Data Set
 
+For illustration purposes, this report only includes the first 100 entries in the `insurance-evaluation-data.csv` file.
+
+Evalution data is missing some `INCOME` and `HOME_EVAL` values that are used in the binary regression model. Rather than trying to impute those values by replacing them with 0 or mean or media values or by building a model to predict them, these values are left as they are and the model cannot be used to predict the outcome for corresponding observations. Approach to imputing these values may change based on the situation and for this report, this part was not assumed. If any of these variables are likely to be missing in real-world use it may be worthwhile investigating omitting these variables from the model altogether.
+
 ```{r echo=FALSE, warning=FALSE}
-eval <- read.csv("crime-evaluation-data_modified.csv")
-eval[,'rad'] <- as.factor(eval[,'rad'])
-eval[,'chas'] <- as.factor(eval[,'chas'])
+eval <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                            "ilyakats/CUNY-DATA621/master/hw4/",
+                            "insurance-evaluation-data.csv")),
+                 na.strings=c("","NA"))
+results <- eval[,1]
+eval$INCOME <- as.numeric(gsub('[$,]', '', eval$INCOME)) # Convert income from Factor to Numeric
+eval$HOME_VAL <- as.numeric(gsub('[$,]', '', eval$HOME_VAL)) # Convert home value from Factor to Numeric
+levels(eval$MSTATUS)[match("z_No",levels(eval$MSTATUS))] <- "No" # Remove 'z_'
+levels(eval$SEX)[match("z_F",levels(eval$SEX))] <- "F" # Remove 'z_'
+levels(eval$EDUCATION)[match("z_High School",levels(eval$EDUCATION))] <- "High School" # Remove 'z_'
+eval$EDUCATION <- factor(eval$EDUCATION,levels(eval$EDUCATION)[c(1,5,2:4)]) # Reorder levels
+levels(eval$JOB)[match("z_Blue Collar",levels(eval$JOB))] <- "Blue Collar" # Remove 'z_'
+eval$BLUEBOOK <- as.numeric(gsub('[$,]', '', eval$BLUEBOOK)) # Convert value from Factor to Numeric
+levels(eval$CAR_TYPE)[match("z_SUV",levels(eval$CAR_TYPE))] <- "SUV" # Remove 'z_'
+levels(eval$RED_CAR)[match("no",levels(eval$RED_CAR))] <- "No"
+levels(eval$RED_CAR)[match("yes",levels(eval$RED_CAR))] <- "Yes"
+eval$OLDCLAIM <- as.numeric(gsub('[$,]', '', eval$OLDCLAIM)) # Convert from Factor to Numeric
+levels(eval$URBANICITY)[match("Highly Urban/ Urban",levels(eval$URBANICITY))] <- "Urban"
+levels(eval$URBANICITY)[match("z_Highly Rural/ Rural",levels(eval$URBANICITY))] <- "Rural"
+eval$JOB <- factor(eval$JOB,levels(eval$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)]) # Reorder levels
+eval <- eval[-c(1)]
 
 pred <- predict(model, newdata=eval, type="response")
+results <- cbind(results, prob=round(pred,4))
+results <- cbind(results, predict=round(pred,0))
 
-eval <- cbind(eval, prob=round(pred,4))
-eval <- cbind(eval, predict=round(pred,0))
-kable(eval, row.names=FALSE)
-```
+pred <- predict(lmModel, newdata=eval, type="response")
+results <- cbind(results, exp(pred))
+results <- as.data.frame(results)
 
-Split between predicted outcomes is illustrated by tables below. 
-
-```{r echo=FALSE, warning=FALSE}
-table(eval$pred)
-table(eval$pred)/sum(table(eval$pred))
+results[results$predict==0 & !is.na(results$predict),'V4'] <- NA
+results[is.na(results$predict),'V4'] <- NA
+colnames(results) <- c("Index", "TARGET_FLAG Prob.", "TARGET_FLAG", "TARGET_AMT")
+pander(head(results, 100))
 ```
 
 \newpage
@@ -311,8 +563,8 @@ table(eval$pred)/sum(table(eval$pred))
 # Required libraries
 library(knitr)
 library(kableExtra)
-library(ggplot2)
 library(gridExtra)
+library(ggplot2)
 library(dplyr)
 library(caTools)
 library(pscl)
@@ -320,66 +572,245 @@ library(ROCR)
 library(MASS)
 library(caret)
 library(car)
+library(Metrics)
+library(quantreg)
 
 # Import data
-crime <- read.csv(url(paste0("https://raw.githubusercontent.com/",
-                             "ilyakats/CUNY-DATA621/master/hw3/",
-                             "crime-training-data_modified.csv")))
+ins <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                           "ilyakats/CUNY-DATA621/master/hw4/",
+                           "insurance_training_data.csv")),
+                na.strings=c("","NA"))
 
 # Basic statistic
-nrow(crime); ncol(crime)
-summary(crime)
+nrow(ins); ncol(ins)
+summary(ins)
+
+# TARGET_FLAG - 6008 are 0, 2153 are 1
+table(ins$TARGET_FLAG)
+class(ins$TARGET_FLAG) 
+# Integer (0/1)
+
+# TARGET_AMT
+summary(ins[ins$TARGET_FLAG==0, 'TARGET_AMT'])
+summary(ins[ins$TARGET_FLAG==1, 'TARGET_AMT'])
+class(ins$TARGET_AMT) 
+# Only available for TARGET_FLAG=1
+# Numeric: Ranges from 30.28 to 107600
+
+# KIDSDRIV - No of Driving Children
+table(ins$KIDSDRIV)
+class(ins$KIDSDRIV)
+# Integer - Ranges from 0 to 4
+
+# AGE
+summary(ins$AGE)
+class(ins$AGE)
+# Integer - Ranges from 16 to 81
+# 6 NAs
+
+# HOMEKIDS
+table(ins$HOMEKIDS)
+class(ins$HOMEKIDS)
+# Integer - Ranges from 0 to 5
+
+# YOJ - Years on Job
+summary(ins$YOJ)
+class(ins$YOJ)
+# Integer - Ranges from 0 to 23
+# 454 NAs - 5.56% of observations
+
+# INCOME
+class(ins$INCOME)
+summary(ins$INCOME)
+# Convert to Numeric - Ranges from $0 to $367,000
+# 445 NAs - 5.45% of observations
+
+# PARENT1 - Single Parent?
+table(ins$PARENT1)
+class(ins$PARENT1); levels(ins$PARENT1)
+# Factor - No, Yes
+
+# HOME_VAL - Home Value
+class(ins$HOME_VAL)
+summary(ins$HOME_VAL)
+# Converted to Numeric - Ranges from $0 to $885,300
+# 464 NAs - 5.69% of observations
+
+# MSTATUS
+table(ins$MSTATUS)
+class(ins$MSTATUS); levels(ins$MSTATUS)
+# Factor - Yes, No
+
+# SEX
+table(ins$SEX)
+class(ins$SEX); levels(ins$SEX)
+# Factor - M, F
+
+# EDUCATION
+table(ins$EDUCATION)
+class(ins$EDUCATION); levels(ins$EDUCATION)
+# Factor - <HS, HS, BA, MA, PhD
+
+# JOB
+table(ins$JOB)
+class(ins$JOB); levels(ins$JOB)
+# Factor - [Blank], Clerical, Doctor, Home Maker, Lawyer, Manager, 
+# Professional, Student, Blue Collar
+
+# TRAVTIME - Distance to work
+summary(ins$TRAVTIME)
+class(ins$TRAVTIME)
+# Integer - Ranges from 5 to 142
+
+# CAR_USE
+class(ins$CAR_USE); levels(ins$CAR_USE)
+table(ins$CAR_USE)
+# Factor - Commercial, Private
+
+# BLUEBOOK
+class(ins$BLUEBOOK)
+summary(ins$BLUEBOOK)
+# Numeric - Ranges from $1,500 to $69,740
+
+# TIF - Time in Force
+class(ins$TIF)
+summary(ins$TIF)
+# Integer - Ranges from 1 to 25
+
+# CAR_TYPE
+class(ins$CAR_TYPE); levels(ins$CAR_TYPE)
+table(ins$CAR_TYPE)
+# FActor - Minivan, Panel Truck, Pickup, Sports Car, Van, SUV
+
+# RED_CAR
+class(ins$RED_CAR); levels(ins$RED_CAR)
+table(ins$RED_CAR)
+# Factor - No, Yes
+
+# OLDCLAIM
+class(ins$OLDCLAIM)
+summary(ins$OLDCLAIM)
+# Numeric - Ranges from $0 to $57,040
+
+# CLM_FREQ
+class(ins$CLM_FREQ)
+summary(ins$CLM_FREQ)
+# Integer - Ranges from 0 to 5
+
+# REVOKED
+class(ins$REVOKED); levels(ins$REVOKED)
+table(ins$REVOKED)
+# Factor - No, Yes
+
+# MVR_PTS
+class(ins$MVR_PTS)
+summary(ins$MVR_PTS)
+# Integer - Ranges from 0 to 13
+
+# CAR_AGE
+class(ins$CAR_AGE)
+summary(ins$CAR_AGE)
+nrow(ins[ins$CAR_AGE<0 & !is.na(ins$CAR_AGE), ])
+nrow(ins[ins$CAR_AGE==0 & !is.na(ins$CAR_AGE), ])
+nrow(ins[ins$CAR_AGE==1 & !is.na(ins$CAR_AGE), ])
+# Integer - Ranges from -3 to 28
+# 1 observation of -3 - invalid
+# 3 observations of 0 - likely invalid
+# 1,934 observations of 1 - reasonable (new car)
+# 510 NAs - 6.25% of observations
+
+# URBANICITY
+class(ins$URBANICITY); levels(ins$URBANICITY)
+table(ins$URBANICITY)
+# Factor - Urban, Rural
+
+ins$INCOME <- as.numeric(gsub('[$,]', '', ins$INCOME))
+ins$HOME_VAL <- as.numeric(gsub('[$,]', '', ins$HOME_VAL))
+levels(ins$MSTATUS)[match("z_No",levels(ins$MSTATUS))] <- "No"
+levels(ins$SEX)[match("z_F",levels(ins$SEX))] <- "F"
+levels(ins$EDUCATION)[match("z_High School",
+                            levels(ins$EDUCATION))] <- "High School"
+ins$EDUCATION <- factor(ins$EDUCATION,levels(ins$EDUCATION)[c(1,5,2:4)])
+levels(ins$JOB)[match("z_Blue Collar",levels(ins$JOB))] <- "Blue Collar"
+ins$BLUEBOOK <- as.numeric(gsub('[$,]', '', ins$BLUEBOOK))
+levels(ins$CAR_TYPE)[match("z_SUV",levels(ins$CAR_TYPE))] <- "SUV"
+levels(ins$RED_CAR)[match("no",levels(ins$RED_CAR))] <- "No"
+levels(ins$RED_CAR)[match("yes",levels(ins$RED_CAR))] <- "Yes"
+ins$OLDCLAIM <- as.numeric(gsub('[$,]', '', ins$OLDCLAIM))
+levels(ins$URBANICITY)[match("Highly Urban/ Urban",
+                             levels(ins$URBANICITY))] <- "Urban"
+levels(ins$URBANICITY)[match("z_Highly Rural/ Rural",
+                             levels(ins$URBANICITY))] <- "Rural"
+ins$JOB <- factor(ins$JOB,levels(ins$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)])
+
+# Drop index column
+ins <- ins[-c(1)]
+
+insFull <- ins
+
+ins <- ins[complete.cases(ins), ]
+ins[ins$CAR_AGE<1,'CAR_AGE'] <- NA
+ins <- ins[complete.cases(ins), ]
+# Cuts down from 8,161 to 6,045
+
+# Get only complete cases
+nrow(ins[complete.cases(ins), ])
+nrow(ins)
+
+insBackup <- ins
 
 # Summary table
-sumCrime = data.frame(Variable = character(),
-                      Min = integer(),
-                      Median = integer(),
-                      Mean = double(),
-                      SD = double(),
-                      Max = integer(),
-                      Num_NAs = integer(),
-                      Num_Zeros = integer())
-for (i in 1:13) {
-  sumCrime <- rbind(sumCrime, data.frame(Variable = colnames(crime)[i],
-                                         Min = min(crime[,i], na.rm=TRUE),
-                                         Median = median(crime[,i], na.rm=TRUE),
-                                         Mean = mean(crime[,i], na.rm=TRUE),
-                                         SD = sd(crime[,i], na.rm=TRUE),
-                                         Max = max(crime[,i], na.rm=TRUE),
-                                         Num_NAs = sum(is.na(crime[,i])),
-                                         Num_Zeros = length(which(crime[,i]==0)))
+sumIns = data.frame(Variable = character(),
+                    Min = integer(),
+                    Median = integer(),
+                    Mean = double(),
+                    SD = double(),
+                    Max = integer(),
+                    Num_NAs = integer(),
+                    Num_Zeros = integer())
+for (i in c(3:7,9,14,16,17,20,21,23,24)) {
+  sumIns <- rbind(sumIns, data.frame(Variable = colnames(ins)[i],
+                                     Min = min(ins[,i], na.rm=TRUE),
+                                     Median = median(ins[,i], na.rm=TRUE),
+                                     Mean = mean(ins[,i], na.rm=TRUE),
+                                     SD = sd(ins[,i], na.rm=TRUE),
+                                     Max = max(ins[,i], na.rm=TRUE),
+                                     Num_NAs = sum(is.na(ins[,i])),
+                                     Num_Zeros = length(which(ins[,i]==0)))
   )
 }
-colnames(sumCrime) <- c("", "Min", "Median", "Mean", "SD", "Max", 
-                        "Num of NAs", "Num of Zeros")
-sumCrime
+colnames(sumIns) <- c("", "Min", "Median", "Mean", "SD", "Max", "Num of NAs", 
+                      "Num of Zeros")
+sumIns
 
 # Proportion of target variable
-table(crime$target)
-table(crime$target)/sum(table(crime$target))
+table(ins$TARGET_FLAG)
+table(ins$TARGET_FLAG)/sum(table(ins$TARGET_FLAG))
 
 # Exploratory plots (repeated for each variable)
-kable(sumCrime[sumCrime[,1]=="zn",2:8], row.names=FALSE)
-
 # Get descriptive plots:
-# Variables: zn indus chas nox rm age dis rad tax ptratio lstat medv target
-v <- "dis" # Variable to view
-pd <- as.data.frame(cbind(crime[, v], crime$target))
+# Variables: 
+# INDEX, TARGET_FLAG, TARGET_AMT, KIDSDRIV, AGE, HOMEKIDS, YOJ, INCOME, 
+# PARENT1, HOME_VAL, MSTATUS, SEX, EDUCATION, JOB, TRAVTIME, CAR_USE, 
+# BLUEBOOK, TIF, CAR_TYPE, RED_CAR, OLDCLAIM, CLM_FREQ, REVOKED, MVR_PTS, 
+# CAR_AGE, URBANICITY, 
+v <- "TARGET_AMT" # Variable to view
+pd <- as.data.frame(cbind(ins[, v], ins$TARGET_FLAG))
 colnames(pd) <- c("X", "Y")
 
 # Boxplot
 bp <- ggplot(pd, aes(x = 1, y = X)) + 
   stat_boxplot(geom ='errorbar') + geom_boxplot() + 
-  xlab("Boxplot") + ylab("") + 
-  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+  xlab("Boxplot") + ylab("") + theme(axis.text.x=element_blank(), 
+                                     axis.ticks.x=element_blank())
 
 # Density plot
 hp <- ggplot(pd, aes(x = X)) + 
   geom_histogram(aes(y=..density..), colour="black", fill="white") +
   geom_density(alpha=.2, fill="#FF6666") + 
   ylab("") + xlab("Density Plot with Mean") +
-  geom_vline(aes(xintercept=mean(X, na.rm=TRUE)), 
-             color="red", linetype="dashed", size=1)
+  geom_vline(aes(xintercept=mean(X, na.rm=TRUE)), color="red", 
+             linetype="dashed", size=1)
 
 # Scatterplot
 sp <- ggplot(pd, aes(x=X, y=Y)) + 
@@ -390,7 +821,7 @@ sp <- ggplot(pd, aes(x=X, y=Y)) +
 grid.arrange(bp, hp, sp, layout_matrix=rbind(c(1,2,2),c(1,3,3)))
 
 # Correlation matrix
-cm <- cor(crime, use="pairwise.complete.obs")
+cm <- cor(ins, use="pairwise.complete.obs")
 cm <- round(cm, 2)
 cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
   cell_spec(x, "html", color = ifelse(x>0.5 | x<(-0.5),"blue","black"))
@@ -400,146 +831,56 @@ cmout %>%
   kable("html", escape = F, align = "c", row.names = TRUE) %>%
   kable_styling("striped", full_width = F)
 
-pairs(crime)
-
-# Force categorical variables to factors
-crime[,'rad'] <- as.factor(crime[,'rad'])
-crime[,'chas'] <- as.factor(crime[,'chas'])
+pairs(ins)
 
 # Split into train and validation sets
 set.seed(88)
-split <- sample.split(crime$target, SplitRatio = 0.75)
-crimeTRAIN <- subset(crime, split == TRUE)
-crimeTEST <- subset(crime, split == FALSE)
+split <- sample.split(ins$TARGET_FLAG, SplitRatio = 0.75)
+insTRAIN <- subset(ins, split == TRUE)
+insTEST <- subset(ins, split == FALSE)
 
-# Model 1
-model <- glm (target ~ ., data = crimeTRAIN, 
+# BINARY REGRESSION MODEL
+
+# Modelling - Basic model
+model <- glm (TARGET_FLAG ~ .-TARGET_AMT, data = insTRAIN, 
               family = binomial(link="logit"))
 summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
+pred <- predict(model, newdata=subset(insTEST, select=c(1:25)), 
                 type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), 
+cm <- confusionMatrix(as.factor(insTEST$TARGET_FLAG), 
                       as.factor(ifelse(pred > 0.5,1,0)))
 cm$table
 cm$overall['Accuracy']
 pR2(model) # McFadden R^2
 
+# Stepwise approach
+model <- stepAIC(model, trace=FALSE, direction='both')
+
+# Model tweaking
+model <- glm(formula = TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + 
+               log(HOME_VAL+1) + MSTATUS + EDUCATION + JOB + TRAVTIME + 
+               CAR_USE + BLUEBOOK + TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + 
+               REVOKED + MVR_PTS + URBANICITY, 
+             family = binomial(link = "logit"), data = insTRAIN)
+
 # ROC
-pr <- prediction(pred, crimeTEST$target)
+pr <- prediction(pred, insTEST$TARGET_FLAG)
 prf <- performance(pr, measure = "tpr", x.measure = "fpr")
 plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
 auc <- performance(pr, measure = "auc")
 (auc <- auc@y.values[[1]])
-
-
-# Model 2
-model <- glm (target ~ ., data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas-lstat, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas-lstat-indus, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-model <- glm (target ~ .-rm-chas-lstat-indus-zn, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
-                type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), 
-                      as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-
-# Take out 'tax' because it is highly correlated with 'rad'
-model <- glm (target ~ .-tax, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
-                type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), 
-                      as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-# Slight improvement
-
-# Step AIC method
-model <- glm (target ~ ., data = crimeTRAIN, 
-              family = binomial(link="logit"))
-model <- stepAIC(model, trace=TRUE)
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
-                type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), 
-                      as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-
-
-# Bad model for testing of code
-model <- glm (target ~ age+tax, data = crimeTRAIN, 
-              family = binomial(link="logit"))
-summary(model)
-pred <- predict(model, newdata=subset(crimeTEST, select=c(1:12)), 
-                type='response')
-cm <- confusionMatrix(as.factor(crimeTEST$target), 
-                      as.factor(ifelse(pred > 0.5,1,0)))
-cm$table
-cm$overall['Accuracy']
-pR2(model) # McFadden R^2
-
-# ROC
-pr <- prediction(pred, crimeTEST$target)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = TRUE, text.adj = c(-0.2,1.7))
-auc <- performance(pr, measure = "auc")
-(auc <- auc@y.values[[1]])
-
-# Selected model
-model <- glm(target ~ zn+I(nox*100)+rad+tax+indus, data = crimeTRAIN, 
-             family = binomial(link = "logit"))
 
 # K-Fold cross validation
 ctrl <- trainControl(method = "repeatedcv", number = 10, 
                      savePredictions = TRUE)
-model_fit <- train(target ~ zn + nox + rad + tax,  
-                   data=crimeTRAIN, method="glm", 
-                   family="binomial",
+model_fit <- train(TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + 
+                     log(HOME_VAL+1) + MSTATUS + EDUCATION + TRAVTIME + 
+                     CAR_USE + BLUEBOOK + TIF + CAR_TYPE + OLDCLAIM + 
+                     CLM_FREQ + REVOKED + MVR_PTS + URBANICITY,  
+                   data=insTRAIN, method="glm", family="binomial",
                    trControl = ctrl, tuneLength = 5)
-
-pred <- predict(model_fit, newdata=crimeTEST)
-confusionMatrix(as.factor(crimeTEST$target), 
+pred <- predict(model_fit, newdata=insTEST)
+confusionMatrix(as.factor(insTEST$TARGET_FLAG),
                 as.factor(ifelse(pred > 0.5,1,0)))
 
 # Deviance residuals
@@ -547,15 +888,118 @@ anova(model, test="Chisq")
 
 # VIF
 vif(model)
+# Take out JOB 
+ggplot(data = ins, aes(JOB, EDUCATION)) +
+  geom_jitter()
+model <- glm(formula = TARGET_FLAG ~ KIDSDRIV + log(INCOME+1) + PARENT1 + 
+               log(HOME_VAL+1) + MSTATUS + EDUCATION + TRAVTIME + CAR_USE + 
+               BLUEBOOK + TIF + CAR_TYPE + OLDCLAIM + CLM_FREQ + REVOKED + 
+               MVR_PTS + URBANICITY, 
+             family = binomial(link = "logit"), data = insTRAIN)
+
+# LINEAR MODEL
+
+insLM <- ins
+insLM <- ins[ins$TARGET_FLAG==1,]
+
+# Split into training and testing sets
+split <- sample.split(insLM$TARGET_AMT, SplitRatio = 0.75)
+insLMtrain <- subset(insLM, split == TRUE)
+insLMtest <- subset(insLM, split == FALSE)
+
+# Initial models
+lmModel <- lm(TARGET_AMT ~ .-TARGET_FLAG,data = insLMtrain)
+summary(lmModel)
+lmModel <- stepAIC(lmModel, trace=FALSE, direction='both')
+summary(lmModel)
+lmModel <- lm(TARGET_AMT ~ PARENT1 + MSTATUS + BLUEBOOK + OLDCLAIM + 
+                CLM_FREQ + REVOKED + JOB,data = insLMtrain)
+summary(lmModel)
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK + OLDCLAIM + CLM_FREQ + REVOKED,
+              data = insLMtrain)
+summary(lmModel)
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK + CAR_AGE + CAR_TYPE,data = insLMtrain)
+summary(lmModel)
+lmModel <- lm(TARGET_AMT ~ BLUEBOOK,data = insLMtrain)
+summary(lmModel)
+
+# Calculate RMSE
+pred <- predict(lmModel, newdata=insLMtest)
+rmse(insLMtest$TARGET_AMT, pred)
+
+# Model plots
+plot(lmModel$residuals, ylab="Residuals")
+abline(h=0)
+
+plot(lmModel$fitted.values, lmModel$residuals, 
+     xlab="Fitted Values", ylab="Residuals")
+abline(h=0)
+
+qqnorm(lmModel$residuals)
+qqline(lmModel$residuals)
+
+boxcox(lmModel)
+
+lmModel <- lm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel)
+pred <- predict(lmModel, newdata=insLMtest)
+rmse(log(insLMtest$TARGET_AMT), pred)
+lmModel2 <- rlm(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel2)
+pred <- predict(lmModel2, newdata=insLMtest)
+rmse(log(insLMtest$TARGET_AMT), pred)
+lmModel3 <- rq(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+summary(lmModel3)
+pred <- predict(lmModel3, newdata=insLMtest)
+rmse(log(insLMtest$TARGET_AMT), pred)
+
+
+plot(log(TARGET_AMT) ~ BLUEBOOK, data = insLMtrain)
+abline(lmModel)
+abline(lmModel2, col="red")
+abline(lmModel3, col="blue")
+legend("topright", inset=0.05, bty="n",
+       legend=c("lm fit", "rlm fit", "rq fit"),
+       lty=c(1,1,1),
+       col=c("black", "red", "blue"))
 
 # Prediction
-eval <- read.csv("crime-evaluation-data_modified.csv")
-eval[,'rad'] <- as.factor(eval[,'rad'])
-eval[,'chas'] <- as.factor(eval[,'chas'])
+eval <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                            "ilyakats/CUNY-DATA621/master/hw4/",
+                            "insurance-evaluation-data.csv")),
+                 na.strings=c("","NA"))
+results <- eval[,1]
+eval$INCOME <- as.numeric(gsub('[$,]', '', eval$INCOME))
+eval$HOME_VAL <- as.numeric(gsub('[$,]', '', eval$HOME_VAL))
+levels(eval$MSTATUS)[match("z_No",levels(eval$MSTATUS))] <- "No"
+levels(eval$SEX)[match("z_F",levels(eval$SEX))] <- "F"
+levels(eval$EDUCATION)[match("z_High School",
+                             levels(eval$EDUCATION))] <- "High School"
+eval$EDUCATION <- factor(eval$EDUCATION,levels(eval$EDUCATION)[c(1,5,2:4)])
+levels(eval$JOB)[match("z_Blue Collar",levels(eval$JOB))] <- "Blue Collar"
+eval$BLUEBOOK <- as.numeric(gsub('[$,]', '', eval$BLUEBOOK))
+levels(eval$CAR_TYPE)[match("z_SUV",levels(eval$CAR_TYPE))] <- "SUV"
+levels(eval$RED_CAR)[match("no",levels(eval$RED_CAR))] <- "No"
+levels(eval$RED_CAR)[match("yes",levels(eval$RED_CAR))] <- "Yes"
+eval$OLDCLAIM <- as.numeric(gsub('[$,]', '', eval$OLDCLAIM))
+levels(eval$URBANICITY)[match("Highly Urban/ Urban",
+                              levels(eval$URBANICITY))] <- "Urban"
+levels(eval$URBANICITY)[match("z_Highly Rural/ Rural",
+                              levels(eval$URBANICITY))] <- "Rural"
+eval$JOB <- factor(eval$JOB,levels(eval$JOB)[c(7, 8, 3, 1, 6, 5, 4, 2)])
+eval <- eval[-c(1)]
 
 pred <- predict(model, newdata=eval, type="response")
+results <- cbind(results, prob=round(pred,4))
+results <- cbind(results, predict=round(pred,0))
 
-eval <- cbind(eval, prob=round(pred,4))
-eval <- cbind(eval, predict=round(pred,0))
-kable(eval, row.names=FALSE)
+pred <- predict(lmModel, newdata=eval, type="response")
+results <- cbind(results, exp(pred))
+results <- as.data.frame(results)
+
+results[results$predict==0 & !is.na(results$predict),'V4'] <- NA
+results[is.na(results$predict),'V4'] <- NA
+colnames(results) <- c("Index", "TARGET_FLAG Prob.", 
+                       "TARGET_FLAG", "TARGET_AMT")
+pander(head(results, 100))
 ```
