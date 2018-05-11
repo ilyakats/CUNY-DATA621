@@ -1,0 +1,78 @@
+---
+title: "DATA 621 Blog 1: One Hot Encoding"
+author: "Ilya Kats"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Looking for interesting topics related to regression to blog about, one term drew my attention - **one hot encoding**. It was presented as a commonly used term, but I have not heard it before (or at least do not recall it). It turned out to be a very common process of converting categorical variables for use in regression. Below are some details. I have also included a bit of information about the _dummies_ package in R.
+
+## Problem
+
+Categorical variables cannot be used directly in regression. They have top be converted in some way to numerical values. 
+
+One way to encode them is to assign a number to each category; however, this does not always make sense. The biggest problem is that it implies some kind of order to the categories. For example, consider a categorical variable for car model. If the data set contains three categories - Acura, BMW, Ford, Toyota, then we can encode them as 1, 2, 3, 4 respectively. This implies this sequence - Acura < BMW < Ford < Toyota. Additionally, if there are any computations done by the model, they may not make any sense (e.g. the average of Acura+Ford is BMW: (1+3)/2=2).
+
+Finally, this type of encoding also assumes that the distance between two categories is the same for any two adjacent categories. A move from Acura to Ford is similar to the move from BMW to Toyota and twice as large as the move from Acura to BMW.
+
+## Solution
+
+**One hot encoding** lets us avoid all problems with sequential encoding. In this process we create as many dummy variables as we have categories. Each dummy variable corresponds to one category and contains 1 if the categorical variable contains corresponding category and 0 otherwise. The data set described above can be encoded using 4 dummy variables as illustrated in the table below.
+
+| CarModel | CarModel_Acura | CarModel_BMW | CarModel_Ford | CarModel_Toyota |
+|----------|----------------|--------------|---------------|-----------------|
+| Acura    | 1              | 0            | 0             | 0               |
+| Acura    | 1              | 0            | 0             | 0               |
+| BMW      | 0              | 1            | 0             | 0               |
+| Toyota   | 0              | 0            | 0             | 1               |
+| Ford     | 0              | 0            | 1             | 0               |
+| Acura    | 1              | 0            | 0             | 0               |
+| BMW      | 0              | 1            | 0             | 0               |
+
+In more general terms **one-hot** referes to any encoding consisting of combination of 0s and 1s; however, only one high bit (1) is allowed in any valid value. It is most commonly used to indicate the state of a state machine (a machine that can be in exactly one of a finite number of states at any given time). This encoding does not require the use of decoder since the position of the high bit indicates the state of the machine.
+
+## R Example
+
+For my example, I'll use `ChickWeight` data set from the `MASS` package. It contains results of an experiment on the effect of diet on early growth of chicks. Variable `Diet` contains values of 1, 2, 3 or 4 indicating which experimental diet the chick received.
+
+There are various ways to create dummy variables. The easiest solution I found is by using the _Dummies_ package. We can accomplish it with one line of code.
+
+```{r message=FALSE}
+library(MASS)
+library(dummies)
+
+ChickWeightEncoded <- dummy.data.frame(ChickWeight, name=c("Diet"), sep="")
+knitr::kable(head(ChickWeightEncoded))
+```
+
+Now consider the following linear model to predict chick's weight.
+
+```{r}
+summary(lm(ChickWeightEncoded$weight ~ ChickWeightEncoded$Diet2+
+             ChickWeightEncoded$Diet3+ChickWeightEncoded$Diet4))
+```
+
+The model is not the best, but it lets us build the following formula: $weight = 19.971 \times Diet2 + 40.305 \times Diet3 + 32.617 \times Diet4 + 102.645$.
+
+All dummy variables are binary - 0 or 1 - so each category gets its own coefficient in the model. So for $Diet2$ expected weight is $19.971+102.645=122.616$, for $Diet3$ expected weight is $40.305+102.645=142.95$ and for $Diet4$ expected weight is $32.617+102.645=135.262$. Dummy variable for $Diet1$ does not need to be in the model since it matches the intercept ($Diet2$, $Diet3$ and $Diet4$ are all $0$, so only the intercept is left and it is the expected weight for $Diet1$).
+
+However, above work is not really necessary as R does it automatically for categorical variables. We can see that the results are the same. However, doing the work - at least once - lets you better understand the data and results.
+
+```{r}
+summary(lm(ChickWeight$weight ~ ChickWeight$Diet))
+```
+
+It is important to note that even though possible values for `Diet` are 1, 2, 3 or 4, they are treated as categories (factor) rather than numeric values. This is the way this data frame is saved in the `MASS` package. If you need to force R to treat variable as a factor, you can do it by using `ChickWeight$weight ~ factor(ChickWeight$Diet)` in your formula.
+
+## References
+
+What is One Hot Encoding? Why And When do you have to use it?, Rakshith Vasudev, August 2, 2017, https://hackernoon.com/what-is-one-hot-encoding-why-and-when-do-you-have-to-use-it-e3c6186d008f
+
+One-hot, Wikipedia, https://en.wikipedia.org/wiki/One-hot
+
+Package _dummies_, https://www.rdocumentation.org/packages/dummies/versions/1.5.6
