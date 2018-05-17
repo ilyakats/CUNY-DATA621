@@ -1,0 +1,650 @@
+---
+title: "DATA 621 Homework 5"
+author: "Ilya Kats"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)    # plotting
+library(dplyr)      # data manipulation
+library(gridExtra)  # display
+library(knitr)      # display
+library(kableExtra) # display
+library(mice)       # imputation
+library(caTools)    # train-test split
+library(MASS)       # boxcox
+library(Metrics)    # rmse
+library(caret)      # confusion matrix
+library(VIM)        # plotting NAs
+library(ggfortify)  # plotting lm diagnostic
+library(car)        # VIF
+library(pander)
+library(pscl)       # zero-inflated model
+
+opts_chunk$set(echo = TRUE)
+options(scipen=999)
+```
+
+## Summary
+
+The goal of the project is to test approaches for evaluating the data set containing various wine characteristics and to predict the number of cases ordered. This report includes comparison of linear, poisson, negative binomial regression models (including zero-inflated negative binomial model). 
+
+There are some questions about real-world validity of evaluation data since there are a lot of negative values for variables that should not have them. Earlier in the analysis, an attempt was made to use the absolute value for modeling, but that did not improve models and generally does not fit the distribution of variables.  
+
+## Data Exploration
+
+The data set includes 12,795 observations with 14 variables (excluding the target variable).
+
+#### Summary of Variables
+
+```{r echo=FALSE, warning=FALSE}
+wine <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                           "ilyakats/CUNY-DATA621/master/hw5/",
+                           "wine-training-data.csv")),
+                 na.strings=c("","NA"))
+colnames(wine)[1] <- "INDEX"
+```
+
+The data set includes 14 independent variables: 
+
+- `AcidIndex`: Proprietary method of testing total acidity of wine by using a weighted average.
+- `Alcohol`: Alcohol content of wine.
+- `Chlorides`: Chloride content of wine.
+- `CitricAcid`: Citric acid content of wine.
+- `Density`: Density of wine.
+- `FixedAcidity`: Fixed Acidity of wine.
+- `FreeSulfurDioxide`: Sulfur dioxide content of wine.
+- `LabelAppeal`: Marketing score indicating the appeal of label design for consumers.
+- `ResidualSugar`: Residual sugar of wine.
+- `STARS`: Wine rating by a team of experts. Ranges from 1 (Poor) to 4 (Excellent) stars.
+- `Sulphates`: Sulfate content of wine.
+- `TotalSulfurDioxide`: Total sulfur dDioxide of wine.
+- `VolatileAcidity`: Volatile acid content of wine.
+- `pH`: pH of wine
+
+Dependent variable is `TARGET` representing number of cases of wine purchased.
+
+\newpage
+The table below shows summary of all variables. 
+
+```{r echo=FALSE, warning=FALSE}
+sumtbl = data.frame(Variable = character(),
+                    Class = character(),
+                    Min = integer(),
+                    Median = integer(),
+                    Mean = double(),
+                    SD = double(),
+                    Max = integer(),
+                    Num_NAs = integer(),
+                    Num_Zeros = integer(),
+                    Num_Neg = integer())
+for (i in c(3:16)) {
+  sumtbl <- rbind(sumtbl, data.frame(Variable = colnames(wine)[i],
+                                     Class = class(wine[,i]),
+                                     Min = min(wine[,i], na.rm=TRUE),
+                                     Median = median(wine[,i], na.rm=TRUE),
+                                     Mean = mean(wine[,i], na.rm=TRUE),
+                                     SD = sd(wine[,i], na.rm=TRUE),
+                                     Max = max(wine[,i], na.rm=TRUE),
+                                     Num_NAs = sum(is.na(wine[,i])),
+                                     Num_Zeros = length(which(wine[,i]==0)),
+                                     Num_Neg = sum(wine[,i]<0 & !is.na(wine[,i]))))
+}
+colnames(sumtbl) <- c("Variable", "Class", "Min", "Median", "Mean", "SD", "Max", 
+                      "Num of NAs", "Num of Zeros", "Num of Neg Values")
+pander(sumtbl[,1:7])
+pander(sumtbl[,c(1,8:10)])
+```
+
+All but three independent variables are continous. Variables `LabelAppeal`, `AcidIndex` and `STARS` are categorical, but represented by numeric values in logical order. The distances between categories/values can be considered equal (i.e. the difference between -2 and -1 for `LabelAppeal` is the same as the difference between 0 and 1). As such these variables can be used in modeling as numeric variables. 
+
+\newpage
+#### Missing Values
+
+Majority variables have negative values. Eight variables have some `NA` values. The plot and table below show how the missing values are spread out within the data set. About quarter of observations are missing a `STARS` value. The rest of variables contain missing values for at most 9.5% of observations. 
+
+```{r echo=FALSE, warning=FALSE}
+aggr_plot <- aggr(wine, col=c('navyblue','red'), 
+                  numbers=FALSE, sortVars=TRUE, labels=names(wine), 
+                  cex.axis=.7, gap=3, 
+                  ylab=c("Histogram of missing data","Pattern"))
+```
+
+\newpage
+#### Exploratory Plots
+
+All dependent variables were inspected using boxplots, density plots and scatterplots. Distribution is similar for all variables - unimodal and symmetrical. Boxplots are also very similar across all possible outcomes with the exception of the last category - 8 cases purchased. This is due to the fact that the data set contains very few observations with this outcome. 
+
+Plots below illustrate results for `Chlorides`. Other variables produced similar plots.
+
+```{r echo=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+v <- "Chlorides"
+pd <- as.data.frame(cbind(wine[, v], wine$TARGET)); colnames(pd) <- c("X", "Y")
+bp <- ggplot(pd, aes(x = 1, y = X)) + stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplot") + ylab("") + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+hp <- ggplot(pd, aes(x = X)) + geom_histogram(aes(y=..density..), bins=50, colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") + ylab("") + xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(X, na.rm=TRUE)), color="red", linetype="dashed", size=1)
+sp <- ggplot(pd, aes(x=X, y=Y)) + geom_point() + xlab("Scatterplot") + ylab("")
+bp_target <- ggplot(wine, aes(x = as.factor(TARGET), y = Chlorides)) + stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplots per Target (No of Wine Cases)") + ylab("Chlorides") + theme(axis.ticks.x=element_blank())
+grid.arrange(bp, hp, sp, bp_target, layout_matrix=rbind(c(1,2,2),c(1,3,3),c(4,4,4)))
+```
+
+\newpage
+#### Correlation Matrix
+
+Correlation matrix below shows that there is very little correlation between variables. All can contribute in the modeling. 
+
+```{r echo=FALSE, warning=FALSE}
+cm <- cor(wine[,2:16], use="pairwise.complete.obs")
+cm <- round(cm, 2)
+rownames(cm)[7:8] <- c("FreeSO2", "TotalSO2")
+colnames(cm)[7:8] <- c("FreeSO2", "TotalSO2")
+cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
+  cell_spec(x, "latex", color = ifelse(x>0.5 | x<(-0.5),"blue","black"))
+})
+rownames(cmout) <- colnames(cmout)
+cmout %>%
+  kable("latex", escape = F, align = "c", row.names = TRUE) %>%
+  kable_styling("striped", full_width = F, font_size = 6) %>%
+  row_spec(0, angle = 90)
+```
+
+#### Dependent Variable
+
+The dependent variable `TARGET` ranges from 0 (no cases purchased) to 8 cases of wine purchased. The most common outcome is 4 cases at 25% of all observations followed closely with no purchase (0 cases) at 21%. Not counting the 0 outcome, it seems that the variable has unimodal, symmetrical distribution resembling normal distibution centered around 4.
+
+```{r echo=FALSE, warning=FALSE}
+o <- as.data.frame(table(wine$TARGET))
+o <- cbind(o, as.data.frame(round(table(wine$TARGET)/sum(table(wine$TARGET)),2))[,2])
+colnames(o) <- c("Outcome", "No of Observations", "Percent of Total")
+pander(o)
+```
+
+\newpage
+## Data Preparation
+
+This data set requires very few transformations as most of the variables appear to be good for analysis as they exist. Two main areas to consider are missing and negative values.
+
+#### Missing Values
+
+The `STARS` variables contains 3,359 missing values. It represents experts' rating. A missing value - weither it is an intentionally omitted rating or not - may have a meaning for modeling - number of cases purchased for wines without rating is influenced by the fact that there is no rating. **For this analysis missing values for `STARS` have been replaced with 0.**
+
+Two other categorical variables - `LabelAppeal` and `AcidIndex` - do not have any missing values. 
+
+Other variables with missing values are good candidates for imputation. Imputation has been done using the `mice` R package and its method `norm`. 
+
+#### Negative Values
+
+`Alcohol` variable has a few negative values - only 118 observations. Negative values for this variable are not possible since 0 would be a non-alcoholic beverage. **The variable has been transformed by taking absolute value of all observations.**
+
+For other variables there is significantly more observations with negative values. Based on some research it seems unlikely that most variables allow for negative values; however, because the distributions for all variables are symmetrical it does not appear that the negative values are data entry or measurement errors. Perhaps, the data was manipulated/shifted or variables were measured using non-standard units. For this analysis, **negative values for all variables except `STARS` remained unchanged.**
+
+#### Training/Testing Split
+
+Data set has been split into a training (75% of observations) and testing (25% of observations) sets. Splitting has been accomplished using the `caTools` R package based on the `TARGET` variable to make sure that each set has a proportional number of various target classes.
+
+```{r echo=FALSE, warning=FALSE, results="hide"}
+wine$STARS[is.na(wine$STARS)] <- 0
+wine$Alcohol <- abs(wine$Alcohol)
+
+wineImputed <- mice(wine, m=5, maxit=10, meth='norm', seed=500)
+wine <- complete(wineImputed)
+
+# Split into train and validation sets
+set.seed(88)
+split <- sample.split(wine$TARGET, SplitRatio = 0.75)
+wineTRAIN <- subset(wine, split == TRUE)
+wineTEST <- subset(wine, split == FALSE)
+```
+
+\newpage
+## Modeling: Linear
+
+Two main linear models developed were developed and analyzed. The first one included all available variables. It resulted in R^2 of 0.5268, RMSE of 1.3184 and accuracy in predicting the outcomes in the testing set of 0.2853. The second model used stepwise process in both directions to optimize the model (using the `stepAIC` function). It resulted in R^2 of 0.5266, RMSE of 1.3193 and accuracy of 0.2847. It appears that the full model performed very slightly better than the stepwise model. 
+
+Below is the summary of the full model.
+
+```{r echo=FALSE, warning=FALSE}
+lmModel <- lm(TARGET ~ .-INDEX,data = wineTRAIN)
+summary(lmModel)
+```
+
+Looking at the diagnostic plots we can see that the model performs reasonably well. Some of the plots are not very suitable for this data set because the dependent variable is a count variable.
+
+```{r echo=FALSE, warning=FALSE}
+autoplot(lmModel)
+```
+
+The accuracy is fairly low at 28.53%; however, if we examine full confusion matrix below we can see that the model mostly errors only by 1 or 2 cases which may be reasonable enough for a business application. The bigger problem is difficulty in predicting no purchase. There may be significant cost associated with this error.
+
+```{r echo=FALSE, warning=FALSE}
+pred <- predict(lmModel, newdata=wineTEST)
+predRound <- as.factor(round(pred,0))
+levels(predRound) <- levels(as.factor(wineTEST$TARGET))
+confusionMatrix(predRound, as.factor(wineTEST$TARGET))
+
+```
+
+## Modeling: Poisson
+
+The linear model seemed to perform good with all variables. So for the poisson regression similar strategy was applied - a model with all variables and a model optimized by the stepwise method. There was no considerable imrovement using the stepwise method, so for comparison reasons below is the summary for the full model. RMSE for this model is 1.39855, slightly worse than for the linear model.
+
+```{r echo=FALSE, warning=FALSE}
+glmModel <- glm (TARGET ~ .-INDEX, data = wineTRAIN, family = poisson)
+summary(glmModel)
+```
+
+Confusion matrix below comparing predicted values to the test data shows that the model does not predict _no purchase_ outcome (count is 0). Additionally, it often predicts fewer cases than the test data indicates. Accuracy is lower than for the linear model.
+
+```{r echo=FALSE, warning=FALSE}
+pred <- predict(glmModel, newdata=wineTEST, type='response')
+predRound <- as.factor(round(pred,0)-1)
+testData <- as.factor(wineTEST$TARGET)
+levels(predRound) <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "0")
+levels(testData) <- c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+cm <- confusionMatrix(predRound, testData)
+cm$overall[1]
+cm$table
+```
+
+## Modeling: Negative Binomial
+
+Using the `MASS` R package, negative binomial model was created using all variables. This model turned out to be nearly identical to the poisson model. Because of this details are not included in this report. Code used to create and analyze the model is available in the Appendix B. 
+
+Both models exhibited over-dispersion. 
+
+```{r echo=FALSE, warning=FALSE}
+nbModel <- glm.nb(TARGET ~ .-INDEX, data = wineTRAIN)
+```
+
+## Modeling: Zero-Inflated Negative Binomial
+
+Poisson and negative binomial models do not account for the 0 outcome. So a zero-inflated negative binomial model was attempted using the `pscl` R package. RMSE for this model is 1.2727, the best one out of all models.
+
+```{r echo=FALSE, warning=FALSE}
+zrModel <- zeroinfl(TARGET ~ .-INDEX, data = wineTRAIN, dist = "negbin")
+summary(zrModel)
+```
+
+This model has the accuracy of 35.78%, again the best one out of all models. It predicts 0 outcomes (not ideally, but perhaps it can be improved with more research).
+
+```{r echo=FALSE, warning=FALSE}
+pred <- predict(zrModel, newdata=wineTEST, type='response')
+predRound <- as.factor(round(pred,0))
+testData <- as.factor(wineTEST$TARGET)
+cm <- confusionMatrix(predRound, testData)
+cm$overall[1]
+cm$table
+```
+
+\newpage
+## Model Comparison
+
+Considering log-likelihood of all models, it is clear that zero-inflated negative binomial model is the best option. More research in that direction will probably be beneficial.
+
+```{r echo=FALSE, warning=FALSE}
+ll <- rbind(logLik(lmModel), logLik(glmModel))
+ll <- rbind(ll, logLik(nbModel))
+ll <- rbind(ll, logLik(zrModel))
+ll <- as.data.frame(ll)
+rownames(ll) <- c("Linear", "Poisson", "NB", "ZINB")
+colnames(ll) <- c("Log-Likelihood")
+ll[, "DF"] <- c(16,15,16,31)
+pander(ll)
+```
+
+Using full models in all methods allows comparison of coefficients. For the most part coefficients are similar in sign and in magnitude. There are a couple of small coefficients that change signs between NB and ZINB models. 
+
+```{r echo=FALSE, warning=FALSE}
+coef <- as.data.frame(lmModel$coefficients)
+coef <- cbind(coef, as.data.frame(glmModel$coefficients))
+coef <- cbind(coef, as.data.frame(nbModel$coefficients))
+coef <- cbind(coef, as.data.frame(zrModel$coefficients))
+coef <- round(coef, 6)
+colnames(coef) <- c("Linear", "Poisson", "NB", "ZINB (Count)", "ZINB (Zero)")
+pander(coef[,1:4])
+```
+
+\newpage
+## APPENDIX A: Evaluation Data Set
+
+Please note that this appendix includes first 100 observations from the evaluation set.
+
+```{r echo=FALSE, warning=FALSE, results="hide"}
+eval <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                            "ilyakats/CUNY-DATA621/master/hw5/",
+                            "wine-evaluation-data.csv")),
+                 na.strings=c("","NA"))
+colnames(eval)[1] <- "INDEX"
+
+eval$STARS[is.na(eval$STARS)] <- 0
+eval$Alcohol <- abs(eval$Alcohol)
+
+evalImputed <- mice(eval, m=5, maxit=10, meth='norm', seed=500)
+eval <- complete(evalImputed)
+```
+
+```{r echo=FALSE, warning=FALSE}
+pred <- predict(zrModel, newdata=eval, type="response")
+results <- eval[, c("INDEX")]
+results <- cbind(results, prob=round(pred,4))
+results <- cbind(results, predict=round(pred,0))
+colnames(results) <- c("Index", "Predicted Value", "Predicted Outcome")
+pander(head(results, 100))
+```
+
+\newpage
+## APPENDIX B: R Script
+
+```{r eval=FALSE}
+# Required libraries
+library(ggplot2)    # plotting
+library(dplyr)      # data manipulation
+library(gridExtra)  # display
+library(knitr)      # display
+library(kableExtra) # display
+library(mice)       # imputation
+library(caTools)    # train-test split
+library(MASS)       # boxcox
+library(Metrics)    # rmse
+library(caret)      # confusion matrix
+library(VIM)        # plotting NAs
+library(ggfortify)  # plotting lm diagnostic
+library(car)        # VIF
+library(pscl)       # zero-inflated model
+
+# Import data
+wine <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                           "ilyakats/CUNY-DATA621/master/hw5/",
+                           "wine-training-data.csv")),
+                 na.strings=c("","NA"))
+colnames(wine)[1] <- "INDEX"
+
+# Basic statistic
+nrow(wine); ncol(wine)
+summary(wine)
+
+# Summary table
+sumtbl = data.frame(Variable = character(),
+                    Class = character(),
+                    Min = integer(),
+                    Median = integer(),
+                    Mean = double(),
+                    SD = double(),
+                    Max = integer(),
+                    Num_NAs = integer(),
+                    Num_Zeros = integer(),
+                    Num_Neg = integer())
+for (i in c(3:16)) {
+  sumtbl <- rbind(sumtbl, data.frame(Variable = colnames(wine)[i],
+                                     Class = class(wine[,i]),
+                                     Min = min(wine[,i], na.rm=TRUE),
+                                     Median = median(wine[,i], na.rm=TRUE),
+                                     Mean = mean(wine[,i], na.rm=TRUE),
+                                     SD = sd(wine[,i], na.rm=TRUE),
+                                     Max = max(wine[,i], na.rm=TRUE),
+                                     Num_NAs = sum(is.na(wine[,i])),
+                                     Num_Zeros = length(which(wine[,i]==0)),
+                                     Num_Neg = sum(wine[,i]<0 & !is.na(wine[,i]))))
+}
+colnames(sumtbl) <- c("Variable", "Class", "Min", "Median", "Mean", "SD", "Max", 
+                      "Num of NAs", "Num of Zeros", "Num of Neg Values")
+sumtbl
+
+# Categorical variables
+table(wine$LabelAppeal)
+table(wine$AcidIndex)
+table(wine$STARS)
+
+# Exploratory plots
+v <- "FixedAcidity"
+v <- "VolatileAcidity"
+v <- "CitricAcid"
+v <- "ResidualSugar"
+v <- "Chlorides"
+v <- "FreeSulfurDioxide"
+v <- "TotalSulfurDioxide"
+v <- "Density"
+v <- "pH"
+v <- "Sulphates"
+v <- "Alcohol"
+v <- "LabelAppeal" 
+v <- "AcidIndex"
+v <- "STARS"
+pd <- as.data.frame(cbind(wine[, v], wine$TARGET)); colnames(pd) <- c("X", "Y")
+bp <- ggplot(pd, aes(x = 1, y = X)) + stat_boxplot(geom ='errorbar') + 
+  geom_boxplot() + 
+  xlab("Boxplot") + ylab("") + theme(axis.text.x=element_blank(), 
+                                     axis.ticks.x=element_blank())
+hp <- ggplot(pd, aes(x = X)) + geom_histogram(aes(y=..density..), 
+                                              colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") + ylab("") + 
+  xlab("Density Plot with Mean") +
+  geom_vline(aes(xintercept=mean(X, na.rm=TRUE)), 
+             color="red", linetype="dashed", size=1)
+sp <- ggplot(pd, aes(x=X, y=Y)) + geom_point() + xlab("Scatterplot")
+grid.arrange(bp, hp, sp, layout_matrix=rbind(c(1,2,2),c(1,3,3)))
+
+ggplot(wine, aes(x = as.factor(TARGET), y = Chlorides)) + 
+  stat_boxplot(geom ='errorbar') + geom_boxplot() + 
+  xlab("Boxplots per No of Wine Cases") + ylab("pH") + 
+  theme(axis.ticks.x=element_blank())
+
+# Correlation matrix
+cm <- cor(wine[,2:16], use="pairwise.complete.obs")
+cm <- round(cm, 2)
+cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
+  cell_spec(x, "html", color = ifelse(x>0.5 | x<(-0.5),"blue","black"))
+})
+rownames(cmout) <- colnames(cmout)
+cmout %>%
+  kable("html", escape = F, align = "c", row.names = TRUE) %>%
+  kable_styling("striped", full_width = F)
+
+# IMPUTATION / TRANSFORMATION
+wineOriginal <- wine # Backup of original data
+
+wine$STARS[is.na(wine$STARS)] <- 0 # Missing STARS are 0 score
+# Missing values - table
+md.pattern(wine)
+# Missing values - plot
+aggr_plot <- aggr(wine, col=c('navyblue','red'), 
+                  numbers=FALSE, sortVars=TRUE, labels=names(wine), 
+                  cex.axis=.7, gap=3, 
+                  ylab=c("Histogram of missing data","Pattern"))
+# Imputation
+wineImputed <- mice(wine, m=5, maxit=20, meth='norm', seed=500)
+summary(wineImputed)
+wine <- complete(wineImputed)
+summary(wine)
+
+# Proportion of target variable
+table(wine$TARGET)
+table(wine$TARGET)/sum(table(wine$TARGET))
+
+wine$Alcohol <- abs(wine$Alcohol)
+
+# Split into train and validation sets
+set.seed(88)
+split <- sample.split(wine$TARGET, SplitRatio = 0.75)
+wineTRAIN <- subset(wine, split == TRUE)
+wineTEST <- subset(wine, split == FALSE)
+table(wineTRAIN$TARGET)/sum(table(wineTRAIN$TARGET))
+
+# LINEAR MODEL
+
+# All variables
+lmModel <- lm(TARGET ~ .-INDEX,data = wineTRAIN)
+summary(lmModel)
+# stepAIC
+lmModel <- stepAIC(lmModel, trace=FALSE, direction='both')
+summary(lmModel)
+# Model returned by step AIC
+lmModel <- lm(TARGET ~ VolatileAcidity + CitricAcid + 
+                Chlorides + FreeSulfurDioxide + 
+                TotalSulfurDioxide + Sulphates + Alcohol + 
+                LabelAppeal + AcidIndex + STARS,
+              data = wineTRAIN)
+summary(lmModel)
+# Manual variations
+lmModel <- lm(TARGET ~ VolatileAcidity + Chlorides + 
+                FreeSulfurDioxide + 
+                TotalSulfurDioxide + Sulphates + Alcohol + 
+                LabelAppeal + AcidIndex + STARS,
+              data = wineTRAIN)
+summary(lmModel)
+lmModel <- lm(TARGET ~ VolatileAcidity + Chlorides + 
+                FreeSulfurDioxide + 
+                TotalSulfurDioxide + Alcohol + 
+                LabelAppeal + AcidIndex + STARS,
+              data = wineTRAIN)
+summary(lmModel)
+
+# Calculate RMSE
+pred <- predict(lmModel, newdata=wineTEST)
+rmse(wineTEST$TARGET, pred)
+
+# Confusion matrix
+predRound <- as.factor(round(pred,0))
+table(predRound)
+levels(predRound) <- levels(as.factor(wineTEST$TARGET))
+confusionMatrix(predRound, as.factor(wineTEST$TARGET))
+
+autoplot(lmModel)
+
+# Model plots
+plot(lmModel$residuals, ylab="Residuals")
+abline(h=0)
+
+plot(lmModel$fitted.values, lmModel$residuals, 
+     xlab="Fitted Values", ylab="Residuals")
+abline(h=0)
+
+qqnorm(lmModel$residuals)
+qqline(lmModel$residuals)
+
+# POISSON and NB REGRESSION MODEL
+
+# Poisson 1
+glmModel <- glm (TARGET ~ .-INDEX, data = wineTRAIN, family = poisson)
+summary(glmModel)
+pred <- predict(glmModel, newdata=wineTEST, type='response')
+rmse(wineTEST$TARGET, pred)
+predRound <- as.factor(round(pred,0))
+testData <- as.factor(wineTEST$TARGET)
+levels(predRound) <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "0")
+levels(testData) <- c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+confusionMatrix(predRound, testData)
+
+# Poisson 2
+glmModel2 <- stepAIC(glmModel, trace=FALSE, direction='both')
+summary(glmModel2)
+pred <- predict(glmModel2, newdata=wineTEST, type='response')
+rmse(wineTEST$TARGET, pred)
+predRound <- as.factor(round(pred,0))
+testData <- as.factor(wineTEST$TARGET)
+levels(predRound) <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "0")
+levels(testData) <- c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+confusionMatrix(predRound, testData)
+
+# Poisson 3
+glmModel3 <- glm(TARGET ~ VolatileAcidity + Chlorides + FreeSulfurDioxide + 
+                 Sulphates + Alcohol + LabelAppeal + 
+                 AcidIndex + STARS, family = poisson, data = wineTRAIN)
+summary(glmModel3)
+pred <- predict(glmModel3, newdata=wineTEST, type='response')
+rmse(wineTEST$TARGET, pred)
+predRound <- as.factor(round(pred,0))
+testData <- as.factor(wineTEST$TARGET)
+levels(predRound) <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "0")
+levels(testData) <- c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+confusionMatrix(predRound, testData)
+
+# NB
+nbModel <- glm.nb(TARGET ~ .-INDEX, data = wineTRAIN)
+summary(nbModel)
+pred <- predict(nbModel, newdata=wineTEST, type='response')
+rmse(wineTEST$TARGET, pred)
+predRound <- as.factor(round(pred,0))
+testData <- as.factor(wineTEST$TARGET)
+levels(predRound) <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "0")
+levels(testData) <- c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+confusionMatrix(predRound, testData)
+
+# Zero Inflated
+zrModel <- zeroinfl(TARGET ~ .-INDEX, data = wineTRAIN, dist = "negbin")
+summary(zrModel)
+pred <- predict(zrModel, newdata=wineTEST, type='response')
+rmse(wineTEST$TARGET, pred)
+predRound <- as.factor(round(pred,0))
+testData <- as.factor(wineTEST$TARGET)
+confusionMatrix(predRound, testData)
+
+# Deviance residuals
+anova(glmModel, test="Chisq")
+anova(glmModel2, test="Chisq")
+anova(glmModel3, test="Chisq")
+anova(nbModel, test="Chisq")
+anova(zrModel, test="Chisq")
+
+# VIF
+vif(glmModel)
+vif(nbModel)
+vif(zrModel)
+
+# Coefficients
+coef <- as.data.frame(lmModel$coefficients)
+coef <- cbind(coef, as.data.frame(glmModel$coefficients))
+coef <- cbind(coef, as.data.frame(nbModel$coefficients))
+coef <- cbind(coef, as.data.frame(zrModel$coefficients))
+
+# Prediction
+eval <- read.csv(url(paste0("https://raw.githubusercontent.com/",
+                            "ilyakats/CUNY-DATA621/master/hw5/",
+                            "wine-evaluation-data.csv")),
+                 na.strings=c("","NA"))
+colnames(eval)[1] <- "INDEX"
+
+sumtbl = data.frame(Variable = character(),
+                    Class = character(),
+                    Min = integer(),
+                    Median = integer(),
+                    Mean = double(),
+                    SD = double(),
+                    Max = integer(),
+                    Num_NAs = integer(),
+                    Num_Zeros = integer(),
+                    Num_Neg = integer())
+for (i in c(3:16)) {
+  sumtbl <- rbind(sumtbl, data.frame(Variable = colnames(eval)[i],
+                                     Class = class(eval[,i]),
+                                     Min = min(eval[,i], na.rm=TRUE),
+                                     Median = median(eval[,i], na.rm=TRUE),
+                                     Mean = mean(eval[,i], na.rm=TRUE),
+                                     SD = sd(eval[,i], na.rm=TRUE),
+                                     Max = max(eval[,i], na.rm=TRUE),
+                                     Num_NAs = sum(is.na(eval[,i])),
+                                     Num_Zeros = length(which(eval[,i]==0)),
+                                     Num_Neg = sum(eval[,i]<0 & !is.na(eval[,i]))))
+}
+colnames(sumtbl) <- c("Variable", "Class", "Min", "Median", "Mean", "SD", "Max", 
+                      "Num of NAs", "Num of Zeros", "Num of Neg Values")
+sumtbl
+
+eval$STARS[is.na(eval$STARS)] <- 0
+eval$Alcohol <- abs(eval$Alcohol)
+
+evalImputed <- mice(eval, m=5, maxit=10, meth='norm', seed=500)
+eval <- complete(evalImputed)
+
+pred <- predict(zrModel, newdata=eval, type="response")
+results <- eval[, c("INDEX")]
+results <- cbind(results, prob=round(pred,4))
+results <- cbind(results, predict=round(pred,0))
+colnames(results) <- c("Index", "Predicted Value", "Predicted Outcome")
+pander(head(results, 100))
+```

@@ -494,7 +494,8 @@ cmout <- as.data.frame(cm) %>% mutate_all(function(x) {
 rownames(cmout) <- names
 cmout %>%
   kable("latex", escape = F, align = "c", row.names = TRUE) %>%
-  kable_styling("striped", full_width = F)
+  kable_styling("striped", full_width = F) %>%
+  row_spec(0, angle = -90)
 ```
 
 Anything over 0.5 or under -0.5 is highlighted in blue. The matrix was created using complete pairwise observations.
