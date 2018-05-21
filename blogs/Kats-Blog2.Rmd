@@ -1,0 +1,48 @@
+---
+title: "DATA 621 Blog 2: Timing Operations in R"
+author: "Ilya Kats"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+R has many ways of accomplishing the same thing - base functions, various packages. Sometimes the data set is small and there is plenty of time. Other times, there is a lot of data and computational time makes a difference. Below are some ways of timing operations in R, so that you can compare various approaches to find the most optimal. '
+
+## Data Set
+
+First let us generate a random data set. Since this is just about timing any data set will do. Below creates 1,000,000 random observations - large enough to take a bit of time if you manipulate it.
+
+```{r}
+x <- runif(1000000, 0, 100)
+y <- rnorm(1000000, 0, 10)
+```
+
+## `tictoc` Package
+
+```{r}
+library(tictoc)
+```
+
+```{r}
+tic("Linear regression")
+l1 <- lm(y ~ x)
+toc(log = TRUE)
+```
+
+```{r}
+tic("Linear regression - outer")
+tic("Linear regression - inner")
+l1 <- lm(y ~ x)
+toc()
+l2 <- lm(y ~ x)
+toc()
+```
+
+
+## References
+
+Alexej's Blog, 5 ways to measure running time of R code, https://www.r-bloggers.com/5-ways-to-measure-running-time-of-r-code/
