@@ -8,24 +8,28 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Introduction
+### Introduction
 
-R has many ways of accomplishing the same thing - base functions, various packages. Sometimes the data set is small and there is plenty of time. Other times, there is a lot of data and computational time makes a difference. Below are some ways of timing operations in R, so that you can compare various approaches to find the most optimal. '
+R has many ways of accomplishing the same thing - base functions, various packages. Sometimes the data set is small and there is plenty of time. Other times, there is a lot of data and computational time makes a difference. Below are some ways of timing operations in R, so that you can compare various approaches to find the most optimal.
 
-## Data Set
+### Data Set
 
-First let us generate a random data set. Since this is just about timing any data set will do. Below creates 1,000,000 random observations - large enough to take a bit of time if you manipulate it.
+First let us generate a random data set. Since this is just about timing any data set will do. The code below creates 1,000,000 random observations - large enough to take a bit of time if you manipulate it.
 
 ```{r}
 x <- runif(1000000, 0, 100)
 y <- rnorm(1000000, 0, 10)
 ```
 
-## `tictoc` Package
+### `tictoc` Package
+
+At the most basic level you can simply save the system time to a variable before your code's execution and right after. The difference will tell you how long the code rang (with a bit added because of the wrapper code). This can be easily accomplished with `Sys.time()` call. The package `tictoc` does a very similar thing with a bit more functionality.
 
 ```{r}
 library(tictoc)
 ```
+
+To start timing you use `tic()` and to stop it you put `toc()`. You can add a name to the timer and save results in a log (the default is not to save it: `log = FALSE`).
 
 ```{r}
 tic("Linear regression")
@@ -33,16 +37,41 @@ l1 <- lm(y ~ x)
 toc(log = TRUE)
 ```
 
+One big benefit of this method is that you can have nested timers. 
+
 ```{r}
 tic("Linear regression - outer")
 tic("Linear regression - inner")
 l1 <- lm(y ~ x)
-toc()
+toc(log = TRUE)
 l2 <- lm(y ~ x)
-toc()
+toc(log = TRUE)
 ```
 
+Finally, you can view results of the log. 
 
-## References
+```{r}
+tic.log(format = TRUE)
+```
 
-Alexej's Blog, 5 ways to measure running time of R code, https://www.r-bloggers.com/5-ways-to-measure-running-time-of-r-code/
+### `microbenchmark` Package
+
+If you would like more interpretative capabilities, then `microbenchmark` package may help. The syntax is slightly different. You pass your code as an argument to the `microbenchmark` function. 
+
+```{r, warning=FALSE}
+library(microbenchmark)
+
+( mb <- microbenchmark(lm(y ~ x), times=10) )
+```
+
+This package is similar to the base function `system.time()`. However, base function runs only once. One great feature of `microbenchmark` is that you can evaluate the expression multiple times and get back a few statistical values - mean, median, min, max. The code above runs 10 times. Another great feature is its integration with `ggplot2`. 
+
+```{r}
+library(ggplot2)
+autoplot(mb)
+```
+
+### References
+
+- Hadley Wickham, Advanced R: Performance, http://adv-r.had.co.nz/Performance.html
+- Alexej's Blog, 5 ways to measure running time of R code, https://www.r-bloggers.com/5-ways-to-measure-running-time-of-r-code/

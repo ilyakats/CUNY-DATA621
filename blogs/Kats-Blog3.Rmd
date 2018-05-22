@@ -1,0 +1,61 @@
+---
+title: "DATA 621 Blog 3: Comparing Linear Regression Code in R"
+author: "Ilya Kats"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Introduction
+
+R has many ways of accomplishing the same thing - base functions, various packages. And there are a few ways to build linear regression models. I wanted to compare them to see if some perhaps are faster than others. For most of our school data sets, speed is not critical, but it may be some time in the future. I'm using `microbenchmark` package (described in my previous blog to time operations).  
+
+### Data Set
+
+For testing we can use R's buil-in data set `diamonds`. It contains 53,940 observations with 10 variables. We can try building a linear regression model of 4Cs - `carat`, `cut`, `color`, and `clarity`. The dependent variable will be `price`.
+
+```{r}
+data(diamonds)
+```
+
+### Linear Regression
+
+```{r}
+lmModel <- lm(y ~ X)
+summary(lmModel)
+
+X <- as.matrix(diamonds[, c("carat")])
+y <- diamonds$price
+y <- as.numeric(y)
+lmFModel <- lm.fit(X,y)
+summary(lmFModel)
+
+.lm.fit(X,y)
+
+require(utils)
+
+set.seed(129)
+
+n <- 7 ; p <- 2
+X <- matrix(rnorm(n * p), n, p) # no intercept!
+y <- rnorm(n)
+w <- rnorm(n)^2
+
+str(lmw <- lm.wfit(x = X, y = y, w = w))
+
+str(lm. <- lm.fit (x = X, y = y))
+
+
+if(require("microbenchmark")) {
+  mb <- microbenchmark(lm(y~X), lm.fit(X,y), .lm.fit(X,y))
+  print(mb)
+  boxplot(mb, notch=TRUE)
+}
+
+```
+
+### References
+
+- 
