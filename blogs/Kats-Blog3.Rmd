@@ -1,5 +1,5 @@
 ---
-title: "DATA 621 Blog 3: Comparing Linear Regression Code in R"
+title: "DATA 621 Blog 3: R Markdown - Organizing Your Code Chunks"
 author: "Ilya Kats"
 output: html_document
 ---
@@ -8,54 +8,42 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-### Introduction
+Preparing the final project paper, with the help of my teammates and Google, I have discovered a couple of nifty tricks with R Markdown that make compiling the paper easier. They appeared as overkill at first. After all, it's just one paper, so we might as well just format everything manually. But at the end of the project, they actually simplified things greatly over multiple drafts. 
 
-R has many ways of accomplishing the same thing - base functions, various packages. And there are a few ways to build linear regression models. I wanted to compare them to see if some perhaps are faster than others. For most of our school data sets, speed is not critical, but it may be some time in the future. I'm using `microbenchmark` package (described in my previous blog to time operations).  
+As you know the paper should not include excessive figures or tables, but secondary material can be provided in appendices. Same for R code - goes at the end of the document. Well, you can still write your R Markdown document in logical order, but display and evaluate code as needed. 
 
-### Data Set
+First, using `knitr` you can set default options for all your code chunks. All future code will use these options meaning that the code will be evaluated, but nothing will be displayed.
 
-For testing we can use R's buil-in data set `diamonds`. It contains 53,940 observations with 10 variables. We can try building a linear regression model of 4Cs - `carat`, `cut`, `color`, and `clarity`. The dependent variable will be `price`.
+Naming your code chunks is also a good practice. It is not critical, but makes navigation and referencing code easier. You add a name to the chunk like this: `{r Chunk Name}`.
 
-```{r}
-data(diamonds)
+```{r Options, echo=TRUE}
+knitr::opts_chunk$set(error = FALSE,     # suppress errors
+                      message = FALSE,   # suppress messages
+                      warning = FALSE,   # suppress warnings
+                      results = 'hide',  # suppress code output
+                      echo = FALSE,      # suppress code
+                      fig.show = 'hide', # suppress plots
+                      cache = TRUE)      # enable caching
 ```
 
-### Linear Regression
+Now let us say that you are discussing your linear model dealing with car's speed as a predictor of stopping distance. And you are describing diagnostic plots, but do not want to include them in the paper at this point. Well, you can still put the code in this spot. With default options, nothing will be rendered in the final paper. Here I am overwriting default options, so that you can see the actual code.
 
-```{r}
-lmModel <- lm(y ~ X)
-summary(lmModel)
-
-X <- as.matrix(diamonds[, c("carat")])
-y <- diamonds$price
-y <- as.numeric(y)
-lmFModel <- lm.fit(X,y)
-summary(lmFModel)
-
-.lm.fit(X,y)
-
-require(utils)
-
-set.seed(129)
-
-n <- 7 ; p <- 2
-X <- matrix(rnorm(n * p), n, p) # no intercept!
-y <- rnorm(n)
-w <- rnorm(n)^2
-
-str(lmw <- lm.wfit(x = X, y = y, w = w))
-
-str(lm. <- lm.fit (x = X, y = y))
-
-
-if(require("microbenchmark")) {
-  mb <- microbenchmark(lm(y~X), lm.fit(X,y), .lm.fit(X,y))
-  print(mb)
-  boxplot(mb, notch=TRUE)
-}
-
+```{r Model Diagnostics, echo=TRUE}
+library(ggfortify)
+autoplot(lm(cars$dist ~ cars$speed))
 ```
 
-### References
+Now at the end of the paper you are ready to add some plots. You can use R Markdown options to reference and display the output of other code chunks. Simply add `ref.label` to the code chunk options. Here I am using the following options: `{r Figures, ref.label="Model Diagnostics", fig.show="as.is"}`. *Figures* is the name of this chunk, *Model Diagnostics* is the name of the previous chunk that actually has the code (displayed above), and `fig.show` overwrites default option to display any plots. Otherwise, the code chunk is empty.
 
-- 
+```{r Figures, ref.label="Model Diagnostics", fig.show="as.is"}
+```
+
+If you have multiple plots, you can reference all of them using the following syntax: `{r Figures, ref.label=c("Plot 1", "Plot 2", "Plot 3"), fig.show="as.is"}`.
+
+Now how about adding all of your code to the appendix. My regular workflow is to maintain an R script with all code and then paste it into the R Markdown document, into a code chunk that is displayed, but not evaluated. However, another approach is to develop the code and descriptive text together in logical sequence and then have R Markdown gather all code at the end. Simply use the following options in an empty code chunk: `{r Code, ref.label=knitr::all_labels(), echo=TRUE}`. *Code* is the name of this chunk, `echo=TRUE` ensures that the code will be display, and the critical part is `ref.label=knitr:all_labels()`. This part gathers code from all code chunks in the document.  
+```{r Code, ref.label=knitr::all_labels(), echo=TRUE}
+```
+
+Very simple. Very effective. Highly recommended.
+
+One final note, `ggfortify` R package provides a very simple way to display diagnostic plots using `ggplot2` (so nicely formatted). At its simplest just passing your model as an argument to the `autoplot` function will return key diagnostic plots.

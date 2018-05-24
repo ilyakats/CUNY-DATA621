@@ -1,0 +1,68 @@
+---
+title: "DATA 621 Blog 4: R Markdown - Bibliography"
+author: "Ilya Kats"
+output: html_document
+
+nocite: |
+  @patashnik
+
+bibliography: blog.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In my previous blog post, I have described the way of organizing code chunks in the R Markdown document. To add to that I would like to describe the basics of including bibliography. This again was one of those things that seemed like overkill for the final research paper, but at the end turned out to be an excellent time and effort saver.
+
+First, you need to create a `.bib` file. This is text file in the BibTeX format (http://www.bibtex.org). From the name you can guess that it is similar to and used in conjunction with LaTeX. This file will contain all your references. Here is a sample.
+
+```{Bibliography, eval=FALSE}
+@book{faraway,
+  address   = {New York, NY},
+  title     = {Linear Models with R},
+  isbn      = {978-0-387-98140-6 978-0-387-98141-3},
+  language  = {en},
+  publisher = {Chapman and Hall/CRC},
+  author    = {Faraway, Julian},
+  year      = {2014},
+  edition   = {2nd Edition}
+}
+@article{DeCock,
+  Title	  = {Ames, Iowa: Alternative to the Boston Housing Data as an End of Semester Regression Project},
+  Author  = {De Cock, Dean},
+  Journal = {Journal of Statistics Education, Vol. 19, No. 3},
+  Year    = {2011},
+  Url     = {https://ww2.amstat.org/publications/jse/v19n3/decock.pdf}
+}
+@article{patashnik,
+  Title	  = {BibTeXing},
+  Author  = {Patashnik, Oren},
+  Year    = {02/08/1988},
+  Url     = {http://mirrors.rit.edu/CTAN/biblio/bibtex/base/btxdoc.pdf}
+}
+```
+
+The format is fairly self-explanatory. You start with `@` sign followed by reference type. Then in curly brackets you include the name of the reference followed by various fields. Some fields are required and some are optional (depending on reference types). The following standard reference types are possible: *article*, *book*, *booklet*, *conference*, *inbook* (untitled part of book), *incollection* (part of book with title), *inproceedings* (article in conference), *manual*, *mastersthesis*, *misc*, *phdthesis*, *proceedings*, *techreport*, *unpublished*. Wikipedia article actually does a very good job in describing available types and fields (https://en.wikipedia.org/wiki/BibTeX).
+
+Save the file in the same folder as your `.Rmd` file.
+
+To add this file to the R Markdown documents, simply add `bibliography: blog.bib` to the header (the text between triple dashes). Here `blog.bib` is the name of the file. 
+
+To insert a reference in your text simply put its name with the `@` symbol in square bracket. Like this: `[@faraway]`. This tag will be replaced with the proper short reference. Full reference information will be added to the end of the document. Here is an example of two references used in my `.bib` example.
+
+> Our team's final project is based on Ames, Iowa housing data [@DeCock]. 
+> We have heavily relied on the required text [@faraway].
+
+Since the references are added to the end of the document, it is nice to finish the documents with a new section title. 
+
+If you have references that you want included, but that are not directly used in the text, you can add them by putting the following code in the header of the document. 
+
+```{NoCite}
+nocite: |
+  @patashnik
+```
+
+A little bit of setup keeps everything organized and makes life easier as the document grows. R Markdown is just one flavor of Markdown. Since this class relies heavily on R code, it made sense to write from that perspective. However, LaTeX, BibTeX are more general. 
+
+### Reference
