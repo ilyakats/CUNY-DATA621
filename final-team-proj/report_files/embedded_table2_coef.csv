@@ -1,0 +1,100 @@
+Category,Details,Coefficient,Variable
+,,9.736404,(Intercept)
+Amenities,Basement exposure - Good,0.051112,BsmtExposureGd
+Amenities,Full bathrooms - Basement,0.040449,BsmtFullBath
+Amenities,Number of fireplaces,0.030267,Fireplaces
+Amenities,Full bathrooms - Above grade,0.007889,FullBath
+Amenities,Basement exposure - Minimum,0.007124,BsmtExposureMn
+Amenities,Size of garage,0.000961,OverallQual2_x_GarageCars
+Amenities,Basement exposure - None,-0.000683,BsmtExposureNo
+Amenities,Basement exposure - No basement,NA,BsmtExposureNoB
+Condition,Normal,0.079479,Condition1Norm
+Condition,"Near park, greenbelt, etc.",0.078508,Condition1PosN
+Condition,Within 200' of East-West railroad,0.05867,Condition1RRNe
+Condition,Adjacent to North-South railroad,0.056679,Condition1RRAn
+Condition,Overall condition of the house,0.052166,OverallCond
+Condition,Within 200' of North-South railroad,0.048134,Condition1RRNn
+Condition,Adjacent to feeder street,0.034262,Condition1Feedr
+Condition,"Adjacent to park, greenbelt, etc.",0.008202,Condition1PosA
+Condition,Age,-0.003162,House_Age_Yrs
+Condition,Adjacent to East-West railroad,-0.062048,Condition1RRAe
+Functionality,Typical,0.112427,FunctionalTyp
+Functionality,Minor deductions 2,0.07299,FunctionalMin2
+Functionality,Minor deductions 1,0.062419,FunctionalMin1
+Functionality,Moderate deductions,0.007538,FunctionalMod
+Functionality,Major deductions 2,-0.144502,FunctionalMaj2
+Functionality,Severely damaged,-0.390187,FunctionalSev
+House,Roof material - Wood shingles,0.072151,RoofMatl_WdShngl
+House,2.5 story: 2nd level unfinished,0.059545,HouseStyle2.5Unf
+House,Roof - Mansard,0.045818,RoofStyleMansard
+House,1.5 story: 2nd level unfinished,0.023669,HouseStyle1.5Unf
+House,Total rooms above grade,0.001667,OverallQual2_x_TotRmsAbvGrd_log
+House,Above grade living area,-1.00E-06,OverallQual2_x_GrLivArea
+House,1 story,-0.001891,HouseStyle1Story
+House,Roof - Hip,-0.005659,RoofStyleHip
+House,Split foyer,-0.010301,HouseStyleSFoyer
+House,Roof - Gable,-0.010775,RoofStyleGable
+House,2 story,-0.016187,HouseStyle2Story
+House,Roof - Shed,-0.017076,RoofStyleShed
+House,Split level,-0.022143,HouseStyleSLvl
+House,Roof - Gambrel,-0.024712,RoofStyleGambrel
+House,2.5 story: 2nd level finished,-0.073665,HouseStyle2.5Fin
+Land,Land contour - Hillside,0.038803,LandContourHLS
+Land,Land contour - Near flat,0.028476,LandContourLvl
+Land,Land contour - Depression,0.026734,LandContourLow
+Land,Land slope - Moderate,0.007487,LandSlopeMod
+Land,Land slope - Severe,-0.085362,LandSlopeSev
+Lot,Lot area,0.091273,log(LotArea)
+Lot,Cul-de-sac,0.022886,LotConfigCulDSac
+Lot,Feet of street connected to property,6.60E-05,LotFrontage
+Lot,Inside lot,-0.004728,LotConfigInside
+Lot,Frontage on 2 sides,-0.02665,LotConfigFR2
+Lot,Frontage on 3 sides,-0.075301,LotConfigFR3
+Neighborhood,Stone Brooke,0.096771,NeighborhoodStoneBr
+Neighborhood,Crawford,0.086667,NeighborhoodCrawfor
+Neighborhood,Northridge Heights,0.039785,NeighborhoodNridgHt
+Neighborhood,Somerset,0.030671,NeighborhoodSomerst
+Neighborhood,South & West of Iowa State U,0.013564,NeighborhoodSWISU
+Neighborhood,Clear Creek,0.011456,NeighborhoodClearCr
+Neighborhood,Brookside,0.010711,NeighborhoodBrkSide
+Neighborhood,Northridge,0.007573,NeighborhoodNoRidge
+Neighborhood,Veenker,0.003404,NeighborhoodVeenker
+Neighborhood,Northpark Villa,-0.019407,NeighborhoodNPkVill
+Neighborhood,College Creek,-0.02085,NeighborhoodCollgCr
+Neighborhood,Bluestem,-0.027089,NeighborhoodBlueste
+Neighborhood,Iowa DOT and Rail Road,-0.030277,NeighborhoodIDOTRR
+Neighborhood,Gilbert,-0.037993,NeighborhoodGilbert
+Neighborhood,Old Town,-0.039175,NeighborhoodOldTown
+Neighborhood,North Ames,-0.047091,NeighborhoodNAmes
+Neighborhood,Timberland,-0.048063,NeighborhoodTimber
+Neighborhood,Sawyer West,-0.051714,NeighborhoodSawyerW
+Neighborhood,Sawyer,-0.059436,NeighborhoodSawyer
+Neighborhood,Briardale,-0.059884,NeighborhoodBrDale
+Neighborhood,Edwards,-0.082427,NeighborhoodEdwards
+Neighborhood,Northwest Ames,-0.083887,NeighborhoodNWAmes
+Neighborhood,Mitchell,-0.086347,NeighborhoodMitchel
+Neighborhood,Meadow Village,-0.151122,NeighborhoodMeadowV
+Quality,Garage - above average,0.076615,GarageQual_abv_avg
+Quality,Finished basement - Good living quarters,0.008018,BsmtFinType1GLQ
+Quality,Finished basement - Below average,-0.01004,BsmtFinType1BLQ
+Quality,Finished basement - Low quality,-0.013167,BsmtFinType1LwQ
+Quality,Finished basement - Average rec room,-0.018644,BsmtFinType1Rec
+Quality,Finished basement - Unfinished,-0.042924,BsmtFinType1Unf
+Quality,Kitchen - Good,-0.051366,KitchenQualGd
+Quality,Basement - Good,-0.051999,BsmtQualGd
+Quality,Basement - Fair,-0.052521,BsmtQualFa
+Quality,Basement - Typical,-0.074473,BsmtQualTA
+Quality,Kitchen - Average,-0.074507,KitchenQualTA
+Quality,Kitchen - Fair,-0.124179,KitchenQualFa
+Quality,Finished basement - None,-0.249115,BsmtFinType1NoB
+Quality,Basement - None,NA,BsmtQualNoB
+Sq Footage,First floor,0.000363,X1stFlrSF
+Sq Footage,Second floor,0.00029,X2ndFlrSF
+Sq Footage,Screen porch,0.000238,ScreenPorch
+Sq Footage,Low quality ,2.00E-04,LowQualFinSF
+Sq Footage,Wood deck,4.80E-05,WoodDeckSF
+Sq Footage,Masonry veneer,-4.00E-06,MasVnrArea
+Zoning,Floating Village Residential,0.511221,MSZoningFV
+Zoning,Residential Low Density,0.46941,MSZoningRL
+Zoning,Residential High Density,0.4492,MSZoningRH
+Zoning,Residential Medium Density,0.442153,MSZoningRM

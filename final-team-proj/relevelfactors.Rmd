@@ -1,0 +1,134 @@
+---
+title: "relevelfactors"
+author: "jbrnbrg"
+date: "May 18, 2018"
+output: github_document
+---
+
+##Notes for Abstract
+
+The attributes that make up the sale price of a house can seem daunting given a myriad of factors that can impact its value. However, given a high-quality data set with enough features, a skillful team of data science students can create a fairly accurate model that can be predict the price of a house.
+
+The Ames housing data was created by Dean De Cock of Truman State University as teaching aid for students learning about multiple linear regression and an update to the "Boston Housing"[^3] data from the 1970's that he relied on in his studies. 
+
+The data, first made public in the Journal of Statics Education in 2011[^1], contains over 2900 total observations with attributes of a residental property sold in Ames, IA between 2006 and 2010.  The numerous features describe the house using measures that an active home-buyer would be interested in and allow houses to be compared like-for-like. Among the seventy-nine (79) explanitory variables are thirty-six (36) numeric and forty-three (43) factors containing measures that are common to the housing market including lot area (square feet), garage type (atttached, built-in, etc.) and utilities (gas & sewer, no sewer, etc.).  Variables within each observation include features that are nominal, continuous, discrete, or ordinal (e.g. Basement Quality scored "Excellent" to "Poor"). 
+
+Our intention is to leverage this high-quality dataset to create generalized linear model to predict the Sale Price of a house in Ames IA.
+
+##Data Preperation
+
+* All raw data used for analysis was downloaded by our team from kaggle.com.  Files contained csv data for training and testing (with and without the response, sale price, respectively), as well as a data dictionary describing each of the explanitory variables.
+
+* In its raw format, the data had zero complete cases due mostly to missing values.  
+
+* From the original files, the missing values could be categorized between "known" and "unknown."  The known missing values stemmed from ordinal variables whose `NA` values represented "none" according to the data dictionary.  For example, the `NA` for the Pool Quality variable, `PoolQC`, simply meant "no pool". Further, `NA`s for garage type simply meant "no garage."  
+
+* Unknown missing values consisted of `NA`s that were due missing information.  
+* After seperating the data between known and unknown missing values the number of unknown-missing values - i.e. true `NA`s - was approximately 2% of all observations accross training and testing data.
+* The data with the known missing values was repaired using `forcats` to add the meaningful `NA` values to the factor levels and renamed them to ease analysis. 
+* Factor levels of ordinal variables were then re-leveled from low-to-high to aid in modelling and provide more-intuitive model coeficients.  
+* The observations with repaired missing values were then combined with the unknown missing values.  In preperation for imputation, the data contained 98% complete cases.
+
+
+Number of complete cases original: 0  
+Number of complete cases after repairing known NA's: 2,861 ($\approx 98\%$)  
+Number of true NA's: 58
+
+#References: 
+
+[^1]: [Ames, Iowa: Alternative to the Boston Housing Data as an End of Semester Regression Project by Dean De Cock](https://ww2.amstat.org/publications/jse/v19n3/decock.pdf)
+[^2]: [Ames Housing Data Documentation by Dean De Cock](https://ww2.amstat.org/publications/jse/v19n3/decock/DataDocumentation.txt)
+[^3]: [The Boston Housing Dataset](https://www.cs.toronto.edu/~delve/data/boston/bostonDetail.html)
+
+
+```{r correct unordered factors}
+# ord_vars per the Data Dictionary.  
+ord_vars <- c("LotShape","Utilities", "LandSlope", "ExterQual", 
+              "ExterCond", "BsmtQual", "BsmtCond", "BsmtExposure",
+              "BsmtFinType1", "BsmtFinType2", "HeatingQC", "Electrical",
+              "KitchenQual", "Functional", "FireplaceQu", "GarageFinish",
+              "GarageQual", "GarageCond", "PavedDrive", "PoolQC", "Fence")
+
+# Order of levels for ordinal variables 
+# all are ordered most favorible to least favorible, below
+LotShape_ <- c("Reg", "IR1", "IR2", "IR3")        # needs repair
+Utilities_ <- c("AllPub", "NoSeWa")               # ok - No "NoSewr", "ELO"
+LandSlope_ <- c("Gtl","Mod", "Sev")               # ok
+ExterQual_ <- c("Ex", "Gd", "TA", "Fa")           # needs repair - No "Po"
+
+ExterCond_ <- c("Ex", "Gd", "TA", "Fa", "Po")     # needs repair
+BsmtQual_ <- c("Ex", "Gd", "TA", "Fa", "NoB")     # needs repair
+BsmtCond_ <- c("Gd", "TA", "Fa", "NoB")           # needs repair
+BsmtExposure_ <- c("Gd", "Av", "Mn", "No", "NoB") # needs repair
+
+BsmtFinType1_ <- c("GLQ", "ALQ", "BLQ", 
+                   "Rec", "LwQ", "Unf", "NoB")    # needs repair
+BsmtFinType2_ <- c("GLQ", "ALQ", "BLQ", 
+                   "Rec", "LwQ", "Unf", "NoB")    # needs repair
+HeatingQC_ <- c("Ex", "Gd", "TA", "Fa", "Po")     # needs repair 
+Electrical_ <- c("SBrkr", "FuseA", "FuseF",
+                 "FuseP", "Mix")                  # needs repair
+
+KitchenQual_ <- c("Ex", "Gd", "TA", "Fa")         # needs repair - no "Po"
+Functional_ <- c("Typ", "Min1", "Min2", "Mod",
+                 "Maj1", "Maj2", "Sev")           # needs repair - no "Sal"
+FireplaceQu_ <- c("Ex", "Gd", "TA", "Fa", 
+                  "Po", "NoFp")                   # needs repair
+GarageFinish_ <- c("Fin", "RFn", "Unf", "NoG")    # ok
+
+GarageQual_ <- c("Ex", "Gd", "TA", "Fa", "Po", 
+                 "NoG")                           # needs repair
+GarageCond_ <- c("Ex", "Gd", "TA", "Fa", "Po", 
+                 "NoG")                           # needs repair
+PavedDrive_ <- c("Y", "P", "N")                   # needs repair
+PoolQC_ <- c("Ex", "Gd", "Fa", "NoP")             # needs repair - no "TA"
+Fence_ <- c("GdPrv", "MnPrv", "GdWo", "MnWw",
+            "NoF")                                # needs repair
+
+# list of lists of the correct factor levels
+n_levels <- list(LotShape_, Utilities_,  LandSlope_,  ExterQual_,  
+                 ExterCond_,  BsmtQual_,  BsmtCond_,  BsmtExposure_, 
+                 BsmtFinType1_,  BsmtFinType2_,  HeatingQC_,  Electrical_, 
+                 KitchenQual_,  Functional_,  FireplaceQu_,  GarageFinish_, 
+                 GarageQual_,  GarageCond_,  PavedDrive_,  PoolQC_,  Fence_)
+names(n_levels) <- ord_vars                       # name vars so I can index
+
+relevel_data <- function(df, ord_list, new_lvls){
+  # updates factor cols df[ord_list] with new_lvls (list of lists)
+  i = sapply(colnames(full_set_clean), 
+             function (x) x %in% ord_list)        # obtain order list cols
+  df[i] = lapply(df[i], as.character)             # convert factors to char
+
+  for(s_var in ord_list){                         # correct levels 
+    df[[s_var]] = factor(df[[s_var]], rev(new_lvls[[s_var]]))
+  }
+  return(df)
+}
+
+# CLEAN UP FACTOR LEVELS ##########################################
+full_set_clean <- relevel_data(full_set_clean, ord_vars, n_levels)
+# unique(full_set_clean$GarageCond) # BEFORE: Levels: Ex Fa Gd Po TA NoG
+# lapply(full_set_clean[ord_vars], FUN = function(x) levels(x))
+
+# # Simple example using relevel_data:
+# # sample df w/ factor columns
+# x <- data.frame(Id = c("A12", "A12", "B11", "B11", "B11", "C1", NA),
+#                 vl = c(1.2, 1.11, 1.5, 1.16, 0, 0, 1),
+#                 tag = c("sm", "sm", "med", "med", "med", "med", "lg"))
+# # make list of ordinal vars in data
+# an.ord.list <- c("Id", "tag")
+# 
+# # show vars' orig factor levels
+# levels(x$Id)  # [1] "A12" "B11" "C1"
+# levels(x$tag) # [1] "lg"  "med" "sm"
+# 
+# # Create a list of lists w/ correct levels
+# Id_ <- c("C1", "A12", "B11")
+# tag_ <- c("sm", "med", "lg")
+# n.lvs <- list(Id_, tag_)
+# names(n.lvs) <- an.ord.list
+# 
+# x <- relevel_data(x, an.ord.list, n.lvs)
+# levels(x$Id) # [1] "C1"  "A12" "B11"
+# levels(x$tag)# [1] "sm", "med", "lg"
+```

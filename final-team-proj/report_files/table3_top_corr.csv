@@ -1,0 +1,11 @@
+Predictor Variable,Response Variable,Correlation,R^2
+OverallQual,SalePrice,0.79,0.63
+GrLivArea,SalePrice,0.71,0.50
+GarageCars,SalePrice,0.64,0.41
+GarageArea,SalePrice,0.62,0.39
+TotalBsmtSF,SalePrice,0.61,0.38
+X1stFlrSF,SalePrice,0.61,0.37
+FullBath,SalePrice,0.56,0.31
+TotRmsAbvGrd,SalePrice,0.53,0.28
+House_Age_Yrs,SalePrice,-0.52,0.27
+RemodAdd_Age_Yrs,SalePrice,-0.51,0.26

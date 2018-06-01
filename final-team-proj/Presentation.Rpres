@@ -1,0 +1,144 @@
+DATA 621 Final Presentation 
+========================================================
+author: Kyle Gilde, Jaan Bernberg, Kai Lukowiak, Michael Muller, Ilya Kats
+date: 2018-05-24
+autosize: true
+
+
+
+
+Abstract
+========================================================
+
+```{r echo=FALSE, fig.height = 8, fig.width = 12}
+library(ggplot2)
+library(ggmap)
+library(tidyverse)
+library(ggthemes)
+library(maps)
+
+aimesDF <- data.frame(lon=c(-93.62), lat = c( 42.034722))
+states <- map_data("state")
+ggplot(data = states) + 
+  geom_polygon(aes(x = long, y = lat, group = group), color = "white") + 
+  coord_fixed(1.3) +
+  guides(fill=FALSE) + # do this to leave off the color legend
+  theme_tufte() +
+  geom_point(data = aimesDF, mapping = aes(x = lon, y = lat), color = "red", size=6)+
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank(),
+        axis.text = element_blank())
+
+```
+
+***
+
+* Understanding the factors that go into buying a house is important.
+* Investigated prices in Aimes Iowa.
+* Most important factors:
+  * Location
+  * Condition
+  
+
+Introduction
+========================================================
+![House in Aimes](https://github.com/kaiserxc/DATA621FinalProject/blob/master/images/AimesHouse.jpeg?raw=true)
+***
+The data was originally published in the Journal of Statistics Education (Volume 19, Number 3) as a juxtaposition to the Boston housing dataset. It is now part of a long running Kaggle competition.
+
+The 79 explanatory features describe attributes of the houses such as conditions, zoning, and neighborhood. They are both numeric and categorical.
+
+
+Literature Review
+========================================================
+
+* Environmental attributes can impact sale prices substantially : These include views, land contours, greenery, and proximity to schooling (Luttik, 2000).  
+
+* Simply assessing the attributes of a house by number and conditional qualities of rooms is not not sufficient. (i.e. Two beautiful half-bathrooms does not equate to two beautiful bathroom suites.(Pardoe, 2008)) The caveat to including whether or not the bathroom is a half-bathroom or not; creates tedious datasets, confounding variables, and issue of where to draw the line of specificity.  
+
+* We can expect to see a high coefficient on the neighborhood variable. However this is an over generalized attribute stemming from a variable we do not have, 'neighboring houses.'(Dubin, 1998)  
+
+* A proposed approach to modeling housing sale prices, would be a hedonic regression. Simply put, analyze the factors of a house, group attributes to those factors, and make several different regressions, leading to one output.(Downes, 2002)
+
+Methodology 1
+===
+
+The data is split almost equally into training and test data. 
+
+## Data imputation
+Some NA values like pool quality were `NA` if there was no pool. values like this were updated
+to reflect their actual abscence of.
+
+After the features were fixed, 2% of missing values remained.
+***
+![Missing Values](https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/report_files/fig1_na_dist.png)
+
+Methodology 2
+===
+
+Values for both categorical and continuous variables were imputed using `mice` and the random Forrest imputation method.
+
+The density plots for the various imputed values can be see here. 
+
+***
+![Imputed Values](https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/report_files/fig2_imputation.png)
+
+
+Transformations
+===
+
+We created a new variable, age, which was the age at which the house was sold. Any negative values were set to zero.
+
+Ordered categorical variables such as `HeatingQC` that did not have overlapping interquartile ranges were changed to a single dummy variable. For example, if `HeatingQC == Excellent` and `HeatingQC != Excellent` did not have overlapping IQRs, they would be transformed into a dummy variable. This increases on degrees of freedom.
+
+Interaction terms were created via a grid search and selected based on their individual $R^2$ values.
+
+Transformations 2
+===
+
+Finally a Box-Cox transformation was performed. The optimal $\lambda$ was found to be 0.184. This means that the response variable `SalePrice` was raised to the 0.184 power.
+
+$${Y}(\lambda)  = \begin{cases} \frac { { y }^{ \lambda  } - 1 }{ \lambda }, & \text{if}\ \lambda \neq 0 \\ log(y), & \text{if}\ \lambda = 0 \end{cases}$$  
+
+Visible in the scatter plots, many of the relationships become more linear. 
+
+***
+![Difference in scatter plots between transformed and raw data](https://github.com/kaiserxc/DATA621FinalProject/blob/master/images/Scatter_Trans_and_Imp.png?raw=true)
+
+Modeling
+===
+There were six models used: 
+
+```{r echo=FALSE}
+library(knitr)
+library(kableExtra)
+models <- read.csv(paste0("https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/",
+                          "master/report_files/embedded_table1_models.csv"))
+colnames(models) <- c("Model", "Multiple R^2", "Adjusted R^2", "AIC", "Kaggle Score")
+models$Description <- c('All variables, Box-Cox and other transformations', 
+                       'Model 1 with backwards stepwise regression, not statistically different',
+                       'Only highly significant variables  selected. Significant difference from model 1',
+                       'Only results with p<0.01 selected.',
+                       'This model uses the original data with log transformed price and area',
+                       'Based on model 4 but with interactions and no Box-Cox')
+
+kable(models) %>%  kable_styling(font_size = 12)
+```
+
+Model Selection
+===
+
+During model evaluation, Models 5 & 6 was chosen as most valid. Model tuning was performed through K-fold validation. Four leverage points were removed, and categorical variables *Condition2* and *Utilities* were removed for poor sample distribution.  
+
+Afterwards, adjusted model 6 had the best performance both on the training data, as well as the best kaggle score. As such, we are not worried about over fitting. It had multiple R2 of 0.9276, adjusted R2 of 0.9225, AIC of -2172 and Kaggle score of 0.13376. These are the best values in all categories.
+
+***
+![Model diagnostics.](https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/report_files/fig4_diag.png)
+
+Conclusion
+=== 
+  Examining the model coefficients, we are reminded of the classic real estate adage, 'Location, Location, Location.' Variables with the most powerful coefficients included features that are only obtainable in certain areas. Such as pools, garages, neighborhood, and the contour of land. Where as the lowest coefficients included shapes, styles, and building materials. 
+
+  Other factors such as condition also played a role. Further, it is unlikely that this model will transfer to other geographic areas and should only be used to estimate houses in the mid west. In particular, university towns such as this one where off-campus housing may dictate a large portion of sale price. 
+

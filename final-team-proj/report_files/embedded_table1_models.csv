@@ -1,0 +1,7 @@
+Model,Multiple R^2,Adjusted R^2,AIC,Kaggle Score
+Model 1 (Box-Cox),0.9359,0.9241,-531,
+Model 2 (Box-Cox),0.933,0.9252,-617,
+Model 3 (Box-Cox),0.8934,0.889,-126,
+Model 4 (Box-Cox),0.9193,0.9131,-440,
+Model 5 (Original),0.8935,0.8857,-1604,0.14751
+Model 6 (Transformed),0.9183,0.912,-1982,0.13846

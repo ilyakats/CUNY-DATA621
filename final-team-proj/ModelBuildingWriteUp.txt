@@ -1,0 +1,55 @@
+Methodology: 
+	After fitting 3 base-line (all k-parameters) models, to all 3 three training datasets. ANOVA demonstrated statistical significance between the transformed datasets and the fixed dataset. While all mR^2 were within some neglible deviation of each other. Adding a box-cox transformation of the dependent variable improved the mR^2 beyond the fixed dataset model. 
+
+	The next step, would be taking our strongest model, and modifying stepwise backward to find a model with the strongest AIC, and try to prune parameters off by level of significance. 
+
+	Given that we will play with a box-cox transformed dependent variable that has already squashed the numbers; taking the log of sale price will only increase error.
+	
+
+
+$model 1 : m1BC
+$All data from bcData
+$F-statistic: 79.22 on 227 and 1232 DF  $p-value: < 2.2e-16
+$ Multiple R-squared:  0.9359
+
+Using a multiple linear regression on our entire transformed data set, predicting a dependent variable under an appropriate box-cox lambda, including interactions between overall quality of the houses, we reached a .9359 R-squared score with residuals tending to a very small over prediction. With a F-statistic's p-value showing a drastic improvement over an intercept only model we can infer that this model and it's coeffecients are statistically significant. The next steps are to remove some insignificant variables to see whether we can get the F-stat's p-value lower, for a more parsimonious model and lower the chances of overfitting the model.    
+
+$model 2 : m2BCstep
+$All data from bcData : Stepwise regression
+$F-statistic: 119.8 on 152 and 1307DF $p-value: < 2.2e-16
+$ Multiple R-squared:  0.933
+
+This model is an improvement upon the all inclusive dataset, using all parameters. Lowering k-parameters by about 80 at 237 compared to 156. The F-statistic is higher maening higher deviation from the intercept model, at the same probability that the model as a whole is statistically significant. The mR^2 between the two models is not significant. We can safely say that this model, is 'better.' Analysis of anova(m1BC,m1BCstep), indicates the two models are not significantly different, and going either which way would be fine. 
+
+$model 3 : m3BC
+$Only 0 p-value significant data from bcData
+$F-statistic: 202.4 on 58 and 1401 DF  $p-value: < 2.2e-16
+$Multiple R-squared:  0.8934
+
+This model has a lower mR^2, a much higher F-statistic while still in a range that positively benefits the model. While using only the most significant parameters, with the highest 58 coefficients.
+
+
+$model 4 : m4BC
+$p-value <.01 significance data from bcData
+$F-statistic: 148.4 on 104 and 1355 DF  $p-value: < 2.2e-16
+$Multiple R-squared:  0.9193
+
+Using only data with p-value < .01. 105 k-parameters. With a good mR^2 compromise  between our highest and lowest scoring. 
+
+
+$Anova between m1BCstep,m2BC, and M4BC show all three models differ significantly.
+
+
+$model 5 : m5imp
+$Same parameters from model 4 - interactions, log(SalePrice),log(LotArea)
+$F-statistic: 115.2 on 99 and 1360 DF  $p-value: < 2.2e-16
+$Multiple R-squared:  0.8935
+
+
+Compressing SalePrice and LotArea due to their high range, while copying all but the interactive variables from model 4, we get the highest (I could find) mR^2 with just the fixed Dataset.  Lower but by neglible amount f-statistic and mR^2.
+
+
+$model 6 : m6TD
+$Same parameters from model 4 with log(SalePrice),log(LotArea)
+$F-statistic: 142.8 on 104 and 1355 DF  $p-value: < 2.2e-16
+$Multiple R-squared:  0.9164

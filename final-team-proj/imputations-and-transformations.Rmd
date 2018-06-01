@@ -1,0 +1,902 @@
+---
+title: "Data Exploration DATA621 Final"
+subtitle: "Modeling Housing Prices"
+author: "Kai Lukowiak, Jaan Bernberg, Ilya Kats, Michael Muller, Kyle Gilde"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+
+
+output: 
+  pdf_document:
+    df_print: kable
+    toc: true
+    toc_depth: 2
+    fig_caption: yes
+    
+abstract: "This document provides an introduction to R Markdown, argues for its..."
+keywords: "pandoc, r markdown, knitr"
+bibliography: bibliography.bib
+---
+keywords: "pandoc, r markdown, knitr"
+
+```{r options_pkgs, echo=F, warning=F, message=F, results=F}
+
+
+##Use PDF for Final Paper
+  # html_document:
+  #   theme: yeti
+  #   code_folding: hide
+  #   toc: true
+  #   toc_float:
+  #     collapsed: true
+  #     smooth_scroll: false
+
+knitr::opts_chunk$set(
+                      error = F
+                      , message = F
+                      #,tidy = T
+                      , cache = T
+                      , warning = F
+                      , results = 'hide' #suppress code output
+                      , echo = F #suppress code
+                      , fig.show = 'hide' #suppress plots
+                      )
+
+install_load <- function(pkg){
+  # Load packages & Install them if needed.
+  # CODE SOURCE: https://gist.github.com/stevenworthington/3178163
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE, quietly = TRUE, warn.conflicts = FALSE)
+}
+
+# required packages
+packages <- c("tidyverse","knitr",  "mice", "VIM", "RCurl", "knitcitations", "janitor", "missForest", "DMwR", "splitstackshape", "car")
+
+install_load(packages)
+
+```
+
+
+
+# 1. Introduction (Jaan)
+
+## Data Set Origin
+
+## Variables
+
+## Cases
+
+Describe the background and motivation of your problem.
+
+
+
+
+
+```{r setup }
+##Read data
+url_train <- "https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/house-prices-advanced-regression-techniques/train.csv"
+url_test <-  "https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/house-prices-advanced-regression-techniques/test.csv"
+
+
+stand_read <- function(url){
+  return(read.csv(text = getURL(url)))
+}
+
+o_train <- 
+  stand_read(url_train) %>% 
+  mutate(d_name = 'train')
+o_test <- stand_read(url_test) %>% 
+  mutate(SalePrice = NA, d_name = 'test')
+
+full_set <- rbind(o_train, o_test)
+
+# x <- plot_missing(full_set)
+```
+
+
+
+```{r data wrangle I}
+na_review <- function(df){
+  # returns df of vars w/ NA qty desc.
+  na_qty <- colSums(is.na(df)) %>% as.data.frame(stringsAsFactors=F)
+  colnames(na_qty) <- c("NA_qty")
+  na_qty <- cbind('Variable' = rownames(na_qty), na_qty) %>% 
+    select(Variable, NA_qty)
+  rownames(na_qty) <- NULL
+  
+  na_qty <- na_qty %>% 
+    arrange(desc(NA_qty)) %>% filter(NA_qty > 0) %>% 
+    mutate(Variable = as.character(Variable)) %>% 
+    mutate(Pct_of_Tot =  round(NA_qty/nrow(df), 4) * 100)
+  
+  return(na_qty)
+}
+
+first_pass <- 
+  full_set %>% 
+  # first_pass is train.csv and test.csv combined for NA reviews 
+  # and imputation planning and calculated columns
+  mutate(House_Age_Yrs = YrSold - YearBuilt, 
+         RemodAdd_Age_Yrs = YrSold - YearRemodAdd, 
+         Garage_Age_Yrs = YrSold - GarageYrBlt) 
+
+
+```
+
+
+
+```{r na review}
+naVars <- na_review(first_pass %>% select(-SalePrice))
+naVars
+
+
+set_aside <- c(2600, 2504, 2421, 2127, 2041, 2186, 2525, 1488, 949, 2349, 2218, 2219, 333)
+#View(first_pass[is.na(first_pass$PoolQC), ]) # 2600, 2504, 2421
+#View(first_pass[is.na(first_pass$GarageFinish), ]) # 2127
+#View(first_pass[is.na(first_pass$GarageQual), ]) # 2127
+#View(first_pass[is.na(first_pass$GarageCond), ]) # 2127
+#View(first_pass[is.na(first_pass$BsmtCond), ]) # 2041, 2186, 2525
+#View(first_pass[is.na(first_pass$BsmtExposure), ]) # 1488, 949, 2349
+#View(first_pass[is.na(first_pass$BsmtQual), ]) # 2218, 2219
+#View(first_pass[is.na(first_pass$BsmtFinType2), ]) # 333
+#View(first_pass[is.na(first_pass$MasVnrType), ]) #
+
+#qty
+# first_pass[first_pass$PoolArea == 0, ]      # 2,906
+# first_pass[is.na(first_pass$PoolQC), ]
+# first_pass[is.na(first_pass$Alley), ]       # 2,721
+# first_pass[is.na(first_pass$Fence), ]       # 2,348
+# first_pass[first_pass$Fireplaces == 0, ]    # 1,420
+# first_pass[is.na(first_pass$GarageType),]   # 157
+# first_pass[is.na(first_pass$GarageArea),]   # 1
+# first_pass[is.na(first_pass$GarageFinish),] # 159
+# first_pass[first_pass$GarageArea == 0, ]    # 158
+# first_pass[first_pass$TotalBsmtSF == 0, ]   # 79
+# first_pass[is.na(first_pass$Electrical),]   # 1
+```
+
+
+```{r set aside problem cases}
+set_asideA <- '2600|2504|2421|2127|2041|2186|2525|1488|949|2349|2218|2219|333' # 13
+set_asideB <- '|2550|524|2296|2593' # negative values in '_Age' columns
+
+x <- first_pass %>% 
+  # exclude set_aside observations to fill in known NA's
+  filter(!grepl(paste0(set_asideA, set_asideB), Id))
+  
+naVarsx <- na_review(x %>% select(-SalePrice))
+naVarsx
+
+
+#nrow(x[x$PoolArea==0, ])   # 2,887
+# x[is.na(x$MiscFeature),]   # 2,793
+# x[is.na(x$Alley),]         # 2,700
+# x[is.na(x$Fence),]         # 2,331
+# x[is.na(x$FireplaceQu),]   # 1,414
+# nrow(x[x$LotFrontage==0, ])# 486
+# x[is.na(x$GarageArea),]    # 158
+# x[x$TotalBsmtSF == 0, ]    # 78
+```
+
+
+```{r complete known na}
+obtain_data <- function(df){
+  # like first_pass but with imputation that addresses 
+  # observations that have known NA's
+  df %>%
+    mutate(PoolQC = fct_explicit_na(PoolQC, na_level='NoP'),
+           MiscFeature = fct_explicit_na(MiscFeature, na_level='NoM'),
+           Alley = fct_explicit_na(Alley, na_level='NoA'),
+           Fence = fct_explicit_na(Fence, na_level = 'NoF'),
+           FireplaceQu = fct_explicit_na(FireplaceQu, na_level = 'NoFp'), 
+           LotFrontage = ifelse(is.na(LotFrontage), 0, LotFrontage),
+           
+           # Note GarageYrBlt set to 9999 may be a problem
+           GarageYrBlt = ifelse(is.na(GarageYrBlt), 9999, GarageYrBlt), 
+           GarageFinish = fct_explicit_na(GarageFinish, na_level = 'NoG'), 
+           GarageQual = fct_explicit_na(GarageQual, na_level = 'NoG'), 
+           GarageCond = fct_explicit_na(GarageCond, na_level = 'NoG'), 
+           # NOTE: Garage_Age_Yrs: 0 doesn't seem appropriate... 
+           Garage_Age_Yrs = ifelse(is.na(Garage_Age_Yrs), 0, Garage_Age_Yrs),
+           GarageType = fct_explicit_na(GarageType, na_level = 'NoG'), 
+          
+           BsmtQual = fct_explicit_na(BsmtQual, na_level = 'NoB'),
+           BsmtCond = fct_explicit_na(BsmtCond, na_level = 'NoB'),
+           BsmtExposure = fct_explicit_na(BsmtExposure, na_level = 'NoB'),
+           BsmtFinType1 = fct_explicit_na(BsmtFinType1, na_level = 'NoB'),
+           BsmtFinType2 = fct_explicit_na(BsmtFinType2, na_level = 'NoB')
+           )
+}
+
+
+```
+
+```{r recombine probs with updated}
+probl_obs <- full_set %>% 
+  mutate(House_Age_Yrs = YrSold - YearBuilt, 
+         RemodAdd_Age_Yrs = YrSold - YearRemodAdd, 
+         Garage_Age_Yrs = YrSold - GarageYrBlt) %>% 
+  filter(grepl(paste0(set_asideA, set_asideB), Id))
+
+known_obs <- full_set %>% 
+  filter(!grepl(paste0(set_asideA, set_asideB), Id)) %>% 
+  mutate(House_Age_Yrs = YrSold - YearBuilt, 
+         RemodAdd_Age_Yrs = YrSold - YearRemodAdd, 
+         Garage_Age_Yrs = YrSold - GarageYrBlt)
+
+
+full_set_clean <- rbind(obtain_data(known_obs), probl_obs) %>% arrange(Id)
+str(full_set_clean)
+
+#View(full_set_clean)
+#summary(full_set_clean)
+naVarsy <- na_review(full_set_clean %>% select(-SalePrice))
+sum(naVarsy$NA_qty) # 176
+# unique(full_set_clean$Alley) # NoA  Grvl Pave <NA>, levels: Grvl Pave NoA
+# unique(full_set_clean$PoolQC) # NoP  Ex   <NA> Fa   Gd, levels: Ex Fa Gd NoP
+# unique(full_set_clean$GarageYrBlt) # character!
+
+#summary(full_set_clean)
+
+```
+
+
+##Notes for Abstract
+
+The attributes that make up the sale price of a house can seem daunting given a myriad of factors that can impact its value. However, given a high-quality data set with enough features, a skillful team of data science students can create a fairly accurate model that can be predict the price of a house.
+
+The Ames housing data was created by Dean De Cock of Truman State University as teaching aid for students learning about multiple linear regression and an update to the "Boston Housing"[^3] data from the 1970's that he relied on in his studies. 
+
+The data, first made public in the Journal of Statics Education in 2011[^1], contains over 2900 total observations with attributes of a residental property sold in Ames, IA between 2006 and 2010.  The numerous features describe the house using measures that an active home-buyer would be interested in and allow houses to be compared like-for-like. Among the seventy-nine (79) explanitory variables are thirty-six (36) numeric and forty-three (43) factors containing measures that are common to the housing market including lot area (square feet), garage type (atttached, built-in, etc.) and utilities (gas & sewer, no sewer, etc.).  Variables within each observation include features that are nominal, continuous, discrete, or ordinal (e.g. Basement Quality scored "Excellent" to "Poor"). 
+
+Our intention is to leverage this high-quality dataset to create generalized linear model to predict the Sale Price of a house in Ames IA.
+
+##Data Preperation
+
+* All raw data used for analysis was downloaded by our team from kaggle.com.  Files contained csv data for training and testing (with and without the response, sale price, respectively), as well as a data dictionary describing each of the explanitory variables.
+
+* In its raw format, the data had zero complete cases due mostly to missing values.  
+
+* From the original files, the missing values could be categorized between "known" and "unknown."  The known missing values stemmed from ordinal variables whose `NA` values represented "none" according to the data dictionary.  For example, the `NA` for the Pool Quality variable, `PoolQC`, simply meant "no pool". Further, `NA`s for garage type simply meant "no garage."  
+
+* Unknown missing values consisted of `NA`s that were due missing information.  
+* After seperating the data between known and unknown missing values the number of unknown-missing values - i.e. true `NA`s - was approximately 2% of all observations accross training and testing data.
+* The data with the known missing values was repaired using `forcats` to add the meaningful `NA` values to the factor levels and renamed them to ease analysis. 
+* Factor levels of ordinal variables were then re-leveled from low-to-high to aid in modelling and provide more-intuitive model coeficients.  
+* The observations with repaired missing values were then combined with the unknown missing values. In preperation for imputation, the data contained 98% complete cases.
+
+
+Number of complete cases original: 0  
+Number of complete cases after repairing known NA's: 2,861 ($\approx 98\%$)  
+Number of true NA's: 58
+
+#References: 
+
+[^1]: [Ames, Iowa: Alternative to the Boston Housing Data as an End of Semester Regression Project by Dean De Cock](https://ww2.amstat.org/publications/jse/v19n3/decock.pdf)
+[^2]: [Ames Housing Data Documentation by Dean De Cock](https://ww2.amstat.org/publications/jse/v19n3/decock/DataDocumentation.txt)
+[^3]: [The Boston Housing Dataset](https://www.cs.toronto.edu/~delve/data/boston/bostonDetail.html)
+
+
+```{r correct unordered factors}
+# ord_vars per the Data Dictionary.  
+ord_vars <- c("LotShape","Utilities", "LandSlope", "ExterQual", 
+              "ExterCond", "BsmtQual", "BsmtCond", "BsmtExposure",
+              "BsmtFinType1", "BsmtFinType2", "HeatingQC", "Electrical",
+              "KitchenQual", "Functional", "FireplaceQu", "GarageFinish",
+              "GarageQual", "GarageCond", "PavedDrive", "PoolQC", "Fence")
+
+# Order of levels for ordinal variables 
+# all are ordered most favorible to least favorible, below
+LotShape_ <- c("Reg", "IR1", "IR2", "IR3")        # needs repair
+Utilities_ <- c("AllPub", "NoSeWa")               # ok - No "NoSewr", "ELO"
+LandSlope_ <- c("Gtl","Mod", "Sev")               # ok
+ExterQual_ <- c("Ex", "Gd", "TA", "Fa")           # needs repair - No "Po"
+
+ExterCond_ <- c("Ex", "Gd", "TA", "Fa", "Po")     # needs repair
+BsmtQual_ <- c("Ex", "Gd", "TA", "Fa", "NoB")     # needs repair
+BsmtCond_ <- c("Gd", "TA", "Fa", "NoB")           # needs repair
+BsmtExposure_ <- c("Gd", "Av", "Mn", "No", "NoB") # needs repair
+
+BsmtFinType1_ <- c("GLQ", "ALQ", "BLQ", 
+                   "Rec", "LwQ", "Unf", "NoB")    # needs repair
+BsmtFinType2_ <- c("GLQ", "ALQ", "BLQ", 
+                   "Rec", "LwQ", "Unf", "NoB")    # needs repair
+HeatingQC_ <- c("Ex", "Gd", "TA", "Fa", "Po")     # needs repair 
+Electrical_ <- c("SBrkr", "FuseA", "FuseF",
+                 "FuseP", "Mix")                  # needs repair
+
+KitchenQual_ <- c("Ex", "Gd", "TA", "Fa")         # needs repair - no "Po"
+Functional_ <- c("Typ", "Min1", "Min2", "Mod",
+                 "Maj1", "Maj2", "Sev")           # needs repair - no "Sal"
+FireplaceQu_ <- c("Ex", "Gd", "TA", "Fa", 
+                  "Po", "NoFp")                   # needs repair
+GarageFinish_ <- c("Fin", "RFn", "Unf", "NoG")    # ok
+
+GarageQual_ <- c("Ex", "Gd", "TA", "Fa", "Po", 
+                 "NoG")                           # needs repair
+GarageCond_ <- c("Ex", "Gd", "TA", "Fa", "Po", 
+                 "NoG")                           # needs repair
+PavedDrive_ <- c("Y", "P", "N")                   # needs repair
+PoolQC_ <- c("Ex", "Gd", "Fa", "NoP")             # needs repair - no "TA"
+Fence_ <- c("GdPrv", "MnPrv", "GdWo", "MnWw",
+            "NoF")                                # needs repair
+
+# list of lists of the correct factor levels
+n_levels <- list(LotShape_, Utilities_,  LandSlope_,  ExterQual_,  
+                 ExterCond_,  BsmtQual_,  BsmtCond_,  BsmtExposure_, 
+                 BsmtFinType1_,  BsmtFinType2_,  HeatingQC_,  Electrical_, 
+                 KitchenQual_,  Functional_,  FireplaceQu_,  GarageFinish_, 
+                 GarageQual_,  GarageCond_,  PavedDrive_,  PoolQC_,  Fence_)
+names(n_levels) <- ord_vars                       # name vars so I can index
+
+relevel_data <- function(df, ord_list, new_lvls){
+  # updates factor cols df[ord_list] with new_lvls (list of lists)
+  i = sapply(colnames(full_set_clean), 
+             function (x) x %in% ord_list)        # obtain order list cols
+  df[i] = lapply(df[i], as.character)             # convert factors to char
+
+  for(s_var in ord_list){                         # correct levels 
+    df[[s_var]] = factor(df[[s_var]], rev(new_lvls[[s_var]]))
+  }
+  return(df)
+}
+
+# CLEAN UP FACTOR LEVELS ##########################################
+full_set_clean <- relevel_data(full_set_clean, ord_vars, n_levels)
+# unique(full_set_clean$GarageCond) # BEFORE: Levels: Ex Fa Gd Po TA NoG
+# lapply(full_set_clean[ord_vars], FUN = function(x) levels(x))
+
+# # Simple example using relevel_data:
+# # sample df w/ factor columns
+# x <- data.frame(Id = c("A12", "A12", "B11", "B11", "B11", "C1", NA),
+#                 vl = c(1.2, 1.11, 1.5, 1.16, 0, 0, 1),
+#                 tag = c("sm", "sm", "med", "med", "med", "med", "lg"))
+# # make list of ordinal vars in data
+# an.ord.list <- c("Id", "tag")
+# 
+# # show vars' orig factor levels
+# levels(x$Id)  # [1] "A12" "B11" "C1"
+# levels(x$tag) # [1] "lg"  "med" "sm"
+# 
+# # Create a list of lists w/ correct levels
+# Id_ <- c("C1", "A12", "B11")
+# tag_ <- c("sm", "med", "lg")
+# n.lvs <- list(Id_, tag_)
+# names(n.lvs) <- an.ord.list
+# 
+# x <- relevel_data(x, an.ord.list, n.lvs)
+# levels(x$Id) # [1] "C1"  "A12" "B11"
+# levels(x$tag)# [1] "sm", "med", "lg"
+```
+
+
+
+
+
+```{r datatype review}
+var_types <- function(df){
+  # returns df of Variable name and Type from df
+  var_df <- sapply(df, class) %>% as.data.frame()
+  colnames(var_df) <- c("Var_Type")
+  var_df <- cbind(var_df, 'Variable' = rownames(var_df)) %>% 
+    select(Variable, Var_Type) %>% 
+    mutate(Variable = as.character(Variable),Var_Type = as.character(Var_Type))
+  return(var_df)
+}
+
+var_review <- 
+  var_types(full_set_clean %>% 
+              select(-c(Id,SalePrice,d_name)))
+
+fac_vars <- var_review %>% 
+  filter(Var_Type == 'factor') %>% 
+  select(Variable) %>% 
+  t() %>% 
+  as.character() 
+
+# 43 total length(fac_vars)
+num_vars <- var_review %>% filter(grepl('character|integer|numeric', Var_Type)) %>% 
+  select(Variable) %>% t() %>% as.character() # 39 total but see GarageYrBlt #length(num_vars) 
+```
+
+
+Number of complete cases original: 0  
+Number of complete cases after repairing known NA's: 2,861 ($\approx 98\%$)  
+Number of true NA's: 58
+
+```{r summary stats numeric}
+sum(complete.cases(full_set %>% select(-SalePrice)))       # 0
+sum(complete.cases(full_set_clean %>% select(-SalePrice))) # 2,861 ~ 98%
+nrow(full_set_clean) - 2861 # 58 NA
+stat_info <- psych::describe(full_set_clean %>% select(num_vars, -Id, -d_name))
+stat_info[c(2:nrow(stat_info)),c(2:5,8:9,13:ncol(stat_info)-1)]
+```
+
+```{r summary stats factor}
+#summary(full_set_clean %>% select(fac_vars, -Id, -SalePrice, -d_name))
+
+```
+
+```{r}
+train_data <- full_set_clean %>% filter(d_name == 'train') %>% select(-d_name)
+test_data <- full_set_clean %>% filter(d_name == 'test') %>% select(-d_name)
+##View(train_data)
+dim(train_data)
+dim(test_data)
+```
+
+
+```{r values with neg calc cols}
+#full_set_clean %>% 
+  #filter(Garage_Age_Yrs < 0 | RemodAdd_Age_Yrs < 0 | Garage_Age_Yrs < 0) # Ids c(524, 2296, 2550, 2593)
+```
+
+# 2. Data Exploration (Kai)
+
+
+
+
+
+
+# 3. Data Preparation (Kyle)
+
+## Assessing & Imputing Missing Values
+## Mutate Variables
+
+As you can see in Table 3.1, there are 7 negative values in the new Age variables. These are likely data entry errors since the year of the house or garage being built or the year of the remodel occurred after the house sale. Let's set these to zero, then we will drop the 3 year variables (YrSold, YearBuilt, YearRemodAdd) that were used to create the 3 Age variables. Also, we will convert the `MoSold` integers and `YrSold` to ordered factors since it does not make sense to regress on these as if they were continuous ratio variables.
+
+```{r neg_value_table}
+
+dplyr::filter(full_set_clean, House_Age_Yrs < 0 |   RemodAdd_Age_Yrs < 0 | Garage_Age_Yrs < 0) %>% 
+  dplyr::select(YrSold, YearBuilt, YearRemodAdd, House_Age_Yrs, GarageYrBlt, RemodAdd_Age_Yrs, Garage_Age_Yrs) %>% 
+  kable(caption = "Table 3.1: Invalid Negative Values")
+```
+
+
+
+```{r clean_vars}
+# Mutute Variables
+# bc of the new Age vars, remove the YearBuilt, YearRemodAdd, GarageYrBlt 
+# set negative Ages to zero, scaled the YrSold, MoSold as a factor
+full_set_clean_kyle <- 
+  full_set_clean %>% 
+  arrange(desc(d_name)) %>% 
+  dplyr::select(-c(Id, YearBuilt, YearRemodAdd, GarageYrBlt, d_name)) %>% 
+  mutate(
+    House_Age_Yrs = pmax(0, House_Age_Yrs),
+    RemodAdd_Age_Yrs = pmax(0, RemodAdd_Age_Yrs),
+    Garage_Age_Yrs = pmax(0, Garage_Age_Yrs),
+    YrSold = as.ordered(YrSold),
+    MoSold = as.ordered(MoSold),
+    MSSubClass = as.factor(MSSubClass)
+  )
+
+
+
+```
+
+
+## Visualizing the Missing Values
+
+Before proceeding, it is important to note that there are several differences in the number of factor levels with values between the test and training sets (Table 3.2). For example, in the training set, the `Utilities` variable has 2 levels, but it contains only 1 level in the test set. `Utilities` also has 2 missing values in the test set. Because of this, if we want to keep these 2 observations in the test set, we cannot impute missing values of the test and training sets separately. Consequently, we will combine the sets and drop the SalePrice response variables and create a predictor data set for imputation.
+
+```{r factor_differences}
+factor_differences <- 
+  full_set_clean %>% 
+  mutate(d_name = factor(d_name)) %>%   
+  select_if(is.factor) %>% 
+  #na.omit() %>% 
+  reshape2::melt(id.var = "d_name") %>% 
+  group_by(d_name, variable) %>% 
+  summarise(unique_values = length(na.omit(unique(value)))) %>% 
+  spread(key = d_name, value = unique_values) %>% 
+  dplyr::filter(test != train) %>% 
+  left_join(
+    gather(full_set_clean) %>% 
+      group_by(key) %>% 
+      summarize(NAs = sum(as.integer(is.na(value)))) %>% 
+      dplyr::select(variable = key, NAs)
+  )
+
+
+
+kable(factor_differences, caption = "Table 3.2: Differences in Factor Values between Test & Training Sets")
+
+```
+
+###Number of Missing Values
+
+```{r predictors_for_imputation}
+#combine data sets for imputation
+predictors_for_imputation <- 
+  full_set_clean_kyle %>% 
+  dplyr::select(-SalePrice)
+```
+
+Let's use the `VIM` package to assess the missingness in our predictor data set. 
+
+* Table 3.3 indicates that 97.8% of the cases are complete. 
+
+* While 32 variables are missing at least one value, none of them have a large number of `NA`s. `MasVnrType` is the missing the most with 24 `NA`s, or .8% of all cases (Table 3.4). Altogether, there are 180 values missing. 
+
+* None of the variables are close to the 5% missing threshold that would suggest that we drop them. 
+
+### Pattern of Missing Values
+
+Next, let's investigate whether there appears to be any pattern to the missing values. In addition to the quantity of missingness being important, why and how the values are missing can give us insight into whether we have a biased sample. Faraway (LMR p. 197-198) discusses the three types of missing data:
+
+* **Missing Completely at Random (MCAR)** is when the probability of missingness is the same for all cases. This is the ideal type of missingness because we could delete these cases without incurring bias. 
+
+* **Missing at Random (MAR)** occurs when the probability of a value being missing depends upon a known mechanism. In this scenario, we could delete these observations and compensate by weighting by group membership.
+
+* **Missing Not at Random (MNAR)** occurs when the values are missing because of an unknown variable. This is the type of missingness that is most likely to bias our sample.  
+
+Faraway asserts that ascertaining the exact nature of the missingness is not possible and must be inferred.
+
+Figure 3.1 displays the combinations of missing values in our predictor variables. We may not have MCAR because we can see that the missingness is not more dispersed across all variables & cases. Only 32 of the 79 predictors have a missing value, and we notice that the missingness occurs most often in some of the masonry, basement and garage variables.
+
+### Handling Missing Values
+
+As [Prabhakaran (2016)](https://datascienceplus.com/missing-value-treatment/) dicusses, there are four ways to deal with missing values:
+
+1. Deleting the cases. This is not a preferred method because one could introduce bias or the model could lose power from being based upon fewer cases.
+
+2. Deleting the variable. If the missingness is concentrated in a relatively small number of variables, then deleting the variables may be a good option. The downside to this approach is that we lose the opportunity to include the observed values in the model.
+
+3. Imputation via mean, median & mode. An expedient way to retain all of the cases and variables is to insert the mean or median for continuous variables or the mode for categorical or discrete variables. This approach may suffice for a small number of values, but has the potential to introduce bias in the form of decreasing the variance.
+
+4. Prediction. This more advanced approach involves using the other variables to predict the missing values.
+
+```{r VIM, fig.width=14, fig.height=8}
+#https://www.rdocumentation.org/packages/VIM/versions/4.7.0/topics/aggr
+missing_plot <- VIM::aggr(predictors_for_imputation,
+                      #numbers = T,
+                      sortVars = T,
+                      combine = T,
+                      col = c("lightgreen", "darkred", "orange"),
+                      labels=str_sub(names(predictors_for_imputation), 1, 8),
+                      ylab="Figure 3.1: Missing Values in Train Set"
+                      )
+
+kable(data.frame(complete_cases_pct = missing_plot$percent[1]),
+      caption = "Table 3.3 % of Complete Cases",
+      digits = 1)
+
+dtypes <- rapply(predictors_for_imputation, class)
+dtypes <- data.frame(
+  Variable = names(dtypes),
+  dtype = dtypes
+)
+
+missing_summary <- 
+  missing_plot$missings %>% 
+  arrange(-Count) %>% 
+  janitor::adorn_totals() %>% 
+  mutate(
+    pct_missing = Count / nrow(predictors_for_imputation) * 100
+    ) %>%
+  filter(pct_missing > 0) %>% 
+  left_join(dtypes) 
+
+missing_summary[nrow(missing_summary), "pct_missing"] <- NA
+
+kable(missing_summary, digits = 3, row.names = T, caption = "Table 3.4 Missing Values by Variable")  
+
+```
+
+
+## Imputation
+
+### MICE Methodology
+
+The gold standard for missing value imputation in R is the `mice` package. MICE, or multiple imputation by chained equations, is an acronym for both the package and technique. As [Azur et al (2011)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3074241/) explain, the technique involves imputing multiple iterations of values in order to account for statistical uncertainty with standard errors. Since it uses chained equations, MICE has the ability to impute both numerical and categorical variables. The ideal scenario to use MICE is when less than 5% of the values are missing and when values are missing at random.
+
+### Using MICE with Ames Data Set
+
+For the Ames data set, we will do a single imputation using the "cart" method in `mice`. "Cart" is an acronym for "classification and regression trees," and it is one of the five `mice` methods that can impute both numerical and categorical variables.
+
+```{r imputation}
+
+
+if (!exists("predictors_imputed")){
+  #https://www.rdocumentation.org/packages/mice/versions/2.46.0/topics/mice
+  mice_mod <- mice(predictors_for_imputation, m = 1, method = "cart", seed = 5) 
+  predictors_imputed <- mice::complete(mice_mod)
+}
+
+full_set_imputed <- 
+  predictors_imputed %>% 
+  mutate(SalePrice = full_set_clean_kyle$SalePrice) %>% 
+  droplevels()
+  
+train_data_imputed <- 
+  full_set_imputed[1:nrow(train_data), ] 
+
+test_data_imputed <- 
+  full_set_imputed[nrow(train_data) + 1:nrow(test_data), ] %>% 
+  dplyr::select(-SalePrice) 
+
+```
+
+#Comparing the Observed & Imputed Distributions
+
+Figures 3.2 & 3.3 show the density and strip plots of the observed and imputed values. The imputed distributions have more variance and extremes than the observed distributions. If we were to run, multiple imputations, hopefully we would begin to see more convergence between the imputed and observed valeus.
+
+```{r imputation_viz, fig.width=12, fig.height=12}
+#Visualize the imputations
+#SOURCE: https://stackoverflow.com/questions/12056989/density-plots-with-multiple-groups?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+# Melt into long format
+# Add a variable for the plot legend
+mice_data <- mice::complete(mice_mod, "long", include = TRUE)
+mice_mod_viz <- 
+  mice_data %>% 
+  select_if(is.numeric) %>% 
+  mutate(Imputed = ifelse(mice_data$.imp == "0", "Observed", "Imputed")) %>%   
+  reshape2::melt("Imputed") %>% 
+  na.omit()
+
+if (!exists("mice_density_plot")){
+mice_density_plot <- 
+  ggplot(mice_mod_viz, aes(x=value, colour = factor(Imputed))) + 
+  stat_density(geom = "path") +
+  facet_wrap(~variable, scales="free") +
+  labs(title = "Figure 3.2: Denisity plots of Observed & Imputed Values")
+}
+mice_density_plot
+stripplot(mice_mod, pch = 20, cex = 1.2, main = "Figure 3.3: Strip Plots of Observed & Imputed Values")
+
+#http://web.maths.unsw.edu.au/~dwarton/missingDataLab.html
+```
+
+
+## Variable Transformations
+
+We will take a few approaches to possible variable transformations. We will both simiplify and add variables and create three versions of the training data for modeling. First, using the side-by-side box plots in Figure 3.4, we will examine our categorical variables with more than two values and see if the variable can be simplified by combining the values into two groups. Our criteria for this simplification will be if the variables' inner quartile ranges of the response variable distinctly and logically bifurcate. For example, in the variables for fireplace quality `FireplaceQu`, heating quality `HeatingQC` & pool quality, we notice that only the inner quartiles are bifurcated into two groups that do not overlap: the the highest Excellent value `Ex` versus all other lesser quality conditions. Additionally, the inner quartiles for the wood shingle value `WdShngl` in the roof material variable `RoofMat1`, the above average values in  garage quality `GarageQual`, the gas values in `Heating` and the `Partial` value in `SaleCondition` are distinct from the rest of their variables' respective values. Consequently, we will transform these into dummy variables with appropriate names, and this will allow us to preserve some of the degrees of freedom that would otherwise be subtracted if each and every one of the original values were turned into dummy variables.
+
+
+
+```{r Cat_var_box_plots, fig.width = 15, fig.height = 15}
+####Side-by-Side Boxplots of Categorical Variables
+# create data
+boxplot_data <- 
+  train_data_imputed %>% 
+  select_if(function(x) !is.numeric(x)) %>% 
+  mutate(SalePrice = train_data_imputed$SalePrice) %>% 
+  reshape2::melt(id.vars = "SalePrice")
+
+
+### Boxplots
+ggplot(data = boxplot_data, aes(x = value, y = SalePrice)) +
+  geom_boxplot() +
+  facet_wrap( ~ variable, scales = "free") +
+  coord_flip() +
+  labs(title = "Figure 3.4: Side-by-Side Box Plots of the Categorical Variables versus the Response")
+
+#Reference: https://stackoverflow.com/questions/14604439/plot-multiple-boxplot-in-one-graph?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+
+```
+
+
+
+```{r correlation, fig.width = 10, fig.height = 10}
+##CORRELATIONS
+#correlation matrix
+
+train_data_numeric <- 
+  train_data_imputed %>% 
+  select_if(is.numeric)
+
+cm <- cor(train_data_numeric, use = "pairwise.complete.obs")
+
+
+#plot
+corrplot::corrplot(cm, method = "square", type = "upper")
+
+#find the top correlations
+correlation_df <- function(cm){
+  #Creates a df of pairwise correlations
+  correlations <- c(cm[upper.tri(cm)])
+  cor_df <- data.frame(
+             Var1 = rownames(cm)[row(cm)[upper.tri(cm)]],
+             Var2 = colnames(cm)[col(cm)[upper.tri(cm)]],
+             Correlation = correlations,
+             Rsquared = correlations^2
+       ) %>% 
+    arrange(-Rsquared)
+  return(cor_df)
+}
+
+cor_df <- correlation_df(cm)
+kable(head(cor_df, 10), digits = 2, row.names = T, caption = "Top Correlated Variable Pairs")
+kable(head(dplyr::filter(cor_df, Var1 == "SalePrice" | Var2 == "SalePrice"  ), 10), digits = 2, row.names = T, caption = "Top Correlated Variable Pairs")
+#Reference: https://stackoverflow.com/questions/28035001/transform-correlation-matrix-into-dataframe-with-records-for-each-row-column-pai
+```
+
+Next, let's examine whether our modeling would benefit from transforming any of our predictor variables. To do so, we will take advantage of `R`'s computing power and create several different versions of our predictor variables. First, we will take the natural logrithms, square roots and squares of the numerical variables, and then we will calculate every possible pairwise interaction between these transformations, the original numerical variables and categorical variables. Finally, we calculate all of the pairwise correlations between the interactions and the response variable `SalePrice`. The top correlations can be seen in table 3.5, which is sorted descendingly by R-squared. We observe that there are several correlation values higher than the highest correlation between the original predictor and the response, which is `OverallQual` at .79. They generally involve taking the square of `OverallQual` and multiplying by the log or square root of one of the monetary-value variables. We will include five of the top interactions that make the most sense in our training sets. 
+
+The first of the three training data sets will include only the original variables with the missing values imputed. In our second training data set, we will substitute the seven "simplified" dummy variables for the original seven variables, and we will include the five highly-correlated interactions. Our third training data set will include the new predictor variables of the second set as well as a transformed response variable. While creating the all of the interactions, we noticed that the correlation values appeared to increase vis-a-vis the square root of the response. Consequently, since the response variable contains only positive values, let's create create a simple BIC step model and use it to calculate the Box-Cox $\Lambda$ value. According to Box-Cox, a $\Lambda$ value of approximately .184 should help our final model meet the normality assumption.
+
+
+# 7 categorical re-classifications & 5 interactions
+
+
+```{r response_correlations, fig.height=11, fig.width=10}
+### CORRELATIONS WITH RESPONSE
+pred_vars <- dplyr::select(train_data_numeric, -SalePrice)
+
+# categorical_dummy_vars
+categorical_vars <-
+  train_data_imputed %>%
+  select_if(function(x) !is.numeric(x)) %>%
+  mutate(SalePrice = train_data_imputed$SalePrice)
+
+categorical_dummy_vars <-
+  model.matrix(SalePrice ~ ., data = categorical_vars) %>%
+  data.frame() %>%
+  dplyr::select(-X.Intercept.)
+
+#squared variables
+squared_vars <-
+  apply(pred_vars, 2, function(x) x^2) %>%
+  as.data.frame()
+colnames(squared_vars) <- paste0(names(squared_vars), "_2")
+
+#square root variables
+sqrt_vars <-
+  apply(pred_vars, 2, function(x) x^2) %>%
+  as.data.frame()
+colnames(sqrt_vars) <- paste0(names(sqrt_vars), "_sqrt")
+
+#log variables
+log_vars <-
+  apply(pred_vars, 2, function(x) log(x + .01)) %>%
+  as.data.frame()
+colnames(log_vars) <- paste0(names(log_vars), "_log")
+
+#combine all transformed variables
+individual_vars <- cbind(categorical_dummy_vars, 
+                         squared_vars, 
+                         sqrt_vars, 
+                         log_vars, 
+                         pred_vars) 
+
+#create interaction variables
+##https://stackoverflow.com/questions/2080774/generating-interaction-variables-in-r-dataframes?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+if (!exists("all_interactions")){
+  all_interactions <- data.frame(t(apply(individual_vars, 1, combn, 2, prod)))
+  colnames(all_interactions) <- combn(names(individual_vars), 2, paste, collapse=":")
+}
+
+#combine the individual variables and interactions
+all_predictors <- cbind(individual_vars, all_interactions)
+
+# response variable transformations
+response_transformed <- 
+  train_data_numeric %>% 
+  transmute(
+    SalePrice = SalePrice,
+    SalePrice_2 = SalePrice^2,
+    SalePrice_sqrt = sqrt(SalePrice),
+    SalePrice_log = log(SalePrice)
+  )
+
+# create pairwise correlation df
+if (!exists("response_correlations")){
+  response_correlations <-  
+    cor(response_transformed, all_predictors, use = "pairwise.complete.obs") %>% 
+    correlation_df() %>% 
+    na.omit()
+}
+
+#response_correlations <- splitstackshape::cSplit(response_correlations, "Var2", sep = ":", drop = F)   
+
+n_rows <- 50
+#kable(head(response_correlations, n_rows), digits = 3, caption = "Table 3.23452")
+#kable(head(dplyr::filter(response_correlations, Var1 == "SalePrice"), n_rows), digits = 3, caption = "Table 3.52345243")
+kable(head(dplyr::filter(response_correlations, Var1 == "SalePrice_sqrt"), n_rows), digits = 3, caption = "Table 3.5: Top Correlations with the Original Response Variable")
+```
+
+
+```{r DATA_transformations}
+#1. Original Variables Imputed
+# divide into training & test
+train_orig_vars_imputed <- full_set_imputed[1:nrow(train_data), ] 
+
+test_orig_vars_imputed <- 
+  full_set_imputed[nrow(train_data) + 1:nrow(test_data), ]
+
+# 2. Several Predictor Transformations, including
+# 7 categorical re-classifications & 5 interactions
+full_set_predictors_transformed <- 
+  full_set_imputed %>% 
+  mutate(
+    RoofMatl_WdShngl = as.integer(RoofMatl == "WdShngl"),
+    FireplaceQu_Ex = as.integer(FireplaceQu == "Ex"),
+    HeatingQC_Ex = as.integer(HeatingQC == "Ex"),
+    GarageQual_abv_avg = as.integer(GarageQual %in% c("TA", "Gd", "Ex")),
+    PoolQC_Ex = as.integer(PoolQC == "Ex"),
+    Heating_Gas = as.integer(Heating %in% c("GasA", "GasW")),
+    SaleCondition_Partial = as.integer(SaleCondition == "Partial"),
+    OverallQual2_x_GarageCars = OverallQual^2 * GarageCars,
+    OverallQual2_x_TotRmsAbvGrd_log = OverallQual^2 * log(TotRmsAbvGrd),
+    OverallQual2_x_GrLivArea = OverallQual^2 * GrLivArea,
+    OverallQual2_x_LotArea_log = OverallQual^2 * log(LotArea),
+    OverallQual_2 = OverallQual^2
+  ) %>% 
+  dplyr::select(-c(RoofMatl, FireplaceQu, HeatingQC, GarageQual, PoolQC, 
+                   SaleCondition, Heating))
+
+#divide into training & test
+train_predictors_transformed <- full_set_predictors_transformed[1:nrow(train_data), ] 
+
+test_predictors_transformed <- 
+  full_set_predictors_transformed[nrow(train_data) + 1:nrow(test_data), ] 
+
+
+#3. Box-cox response transformation added to the existing predictor transformations
+lmod <- lm(SalePrice ~ ., data = train_predictors_transformed)
+n <- nrow(train_predictors_transformed)
+
+if (!exists("BIC_lmod")) BIC_lmod <- step(lmod, trace = 0, k = log(n))
+
+PT <- car::powerTransform(as.formula(BIC_lmod$call), data = train_predictors_transformed)
+
+train_BC_transformed <- 
+  train_predictors_transformed %>% 
+  mutate(SalePrice_BC = SalePrice^PT$lambda) %>% 
+  dplyr::select(-SalePrice)
+
+# setwd("C:\\Users\\kyleg\\DATA621FinalProject\\data-imputed-transformed\\")
+# write.csv(train_orig_vars_imputed, "train_orig_vars_imputed.csv")
+# write.csv(train_predictors_transformed, "train_predictors_transformed.csv")
+# write.csv(train_BC_transformed, "train_BC_transformed.csv")
+# write.csv(test_orig_vars_imputed, "test_orig_vars_imputed.csv")
+# write.csv(test_predictors_transformed, "test_predictors_transformed.csv")
+
+```
+
+
+### Literature review
+
+### Methodology
+
+
+
+# 4. Modeling (Michael)
+
+### Literature review
+
+### Methodology
+
+
+# 5. Model Selection, Diagnostics & Conclusions (Ilya)
+
+### Literature review
+
+### Methodology
+
+#Appendix
+
+
+## Tables & Outputs
+
+```{r Tables, ref.label=knitr::all_labels(), echo=F, eval=TRUE, results=T}
+
+```
+
+## Plots
+
+```{r Plots, ref.label=knitr::all_labels(), echo=FALSE, fig.show="asis"}
+
+```
+
+
+
+
+## Code
+```{r Code, ref.label=knitr::all_labels(), echo=TRUE , eval=FALSE}
+
+```
+
+## Bibliography
+

@@ -1,0 +1,73 @@
+---
+title: "Model Building"
+author: "Michael Muller"
+date: "May 21, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+
+```{r}
+bcData = read.csv('https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/data-imputed-transformed/train_BC_transformed.csv')
+bcData$X = NULL
+imputedData = read.csv('https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/data-imputed-transformed/train_orig_vars_imputed.csv')
+imputedData$X = NULL
+transformedData = read.csv('https://raw.githubusercontent.com/kaiserxc/DATA621FinalProject/master/data-imputed-transformed/train_predictors_transformed.csv',)
+transformedData$X = NULL
+```
+
+
+
+
+
+```{r}
+library(psych)
+describe(bcData)
+``` 
+
+
+```{r}
+m1BC = lm(data=bcData,formula =SalePrice_BC~. )
+```  
+
+```{r}
+m1IMP = lm(data = imputedData, formula = SalePrice~.)
+```  
+
+
+```{r}
+anova(m1IMP,m1TD)
+```
+```{r}
+m1TD = lm(data=transformedData,formula = SalePrice~.)
+```  
+
+```{r,results='hide' include=FALSE, r,results='hide'}
+#Uncomment for 2 gazillion lines of code
+#m2BCstep =step(m1BC,direction = 'backward')
+```  
+
+```{r}
+summary(m2BCstep)
+```  
+
+```{r}
+#m2BC only highly significant variables @m3BC includes less significant
+m2BC = lm(data = bcData, formula = SalePrice_BC~OverallCond+Condition2+Condition1+Neighborhood+MSZoning +X1stFlrSF+X2ndFlrSF+LowQualFinSF+KitchenQual+Fireplaces +ScreenPorch+House_Age_Yrs+RoofMatl_WdShngl+GarageQual_abv_avg +OverallQual2_x_GrLivArea+OverallQual2_x_TotRmsAbvGrd_log+OverallQual2_x_GarageCars) 
+ 
+m4BC =lm(data = bcData, formula = SalePrice_BC~OverallCond+Condition2+Condition1+Neighborhood+MSZoning +X1stFlrSF+X2ndFlrSF+LowQualFinSF+KitchenQual+Fireplaces+WoodDeckSF+Functional+FullBath+BsmtFullBath+BsmtFinType1 + BsmtExposure +BsmtQual +LandSlope +LandContour+LotArea + LotFrontage+ LotConfig + Utilities + HouseStyle + RoofStyle + MasVnrArea +ScreenPorch+House_Age_Yrs+RoofMatl_WdShngl+GarageQual_abv_avg +OverallQual2_x_GrLivArea+OverallQual2_x_TotRmsAbvGrd_log+OverallQual2_x_GarageCars) 
+
+```
+
+
+```{r}
+m5imp =lm(data = imputedData, formula = log(SalePrice)~OverallCond+Condition2+Condition1+Neighborhood+MSZoning +X1stFlrSF+X2ndFlrSF+LowQualFinSF+KitchenQual+(Fireplaces)^2+WoodDeckSF+Functional+FullBath+BsmtFullBath+BsmtFinType1 + BsmtExposure +BsmtQual +LandSlope +LandContour+log(LotArea) + LotFrontage+ LotConfig + Utilities + HouseStyle + RoofStyle + MasVnrArea +ScreenPorch+House_Age_Yrs) 
+``` 
+
+```{r}
+m6TD =lm(data = transformedData, formula = log(SalePrice)~OverallCond+Condition2+Condition1+Neighborhood+MSZoning +X1stFlrSF+X2ndFlrSF+LowQualFinSF+KitchenQual+Fireplaces+WoodDeckSF+Functional+FullBath+BsmtFullBath+BsmtFinType1 + BsmtExposure +BsmtQual +LandSlope +LandContour+log(LotArea) + LotFrontage+ LotConfig + Utilities + HouseStyle + RoofStyle + MasVnrArea +ScreenPorch+House_Age_Yrs+RoofMatl_WdShngl+GarageQual_abv_avg +OverallQual2_x_GrLivArea+OverallQual2_x_TotRmsAbvGrd_log+OverallQual2_x_GarageCars)  
+```

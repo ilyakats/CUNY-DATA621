@@ -1,0 +1,226 @@
+---
+title: "Graphical EDA"
+author: "Kai Lukowiak"
+date: '2018-05-20'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(gridExtra)
+library(ggthemes)
+library(RColorBrewer)
+```
+
+
+```{r}
+df <- read_csv('house-prices-advanced-regression-techniques/train.csv')
+df[sapply(df, is.character)] <- lapply(df[sapply(df, is.character)], as.factor)
+```
+
+
+```{r}
+read_csv_string_as_f <- function(string){
+  df <- read_csv(string) %>% 
+    mutate_if(is.character, as.factor)
+  return(df)
+}
+
+trainImputed <- read_csv_string_as_f('data-imputed-transformed/train_orig_vars_imputed.csv')
+trainImpTrans <- read_csv_string_as_f('data-imputed-transformed/train_BC_transformed.csv')
+```
+
+
+```{r  fig.height=15, fig.width=10}
+small_multiples_hist <- function(df, var_type, geom_type, n_col = 4, title, width = 7, height = 15) {
+  df %>% 
+    select_if(var_type) %>% 
+    gather() %>% 
+    ggplot(aes(x = value)) + 
+    geom_type +
+    facet_wrap(~key, ncol = n_col, scales = 'free') +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    ggtitle(title)
+  img_name <- paste(gsub(" ", "_", title), '.png', sep = '')
+  ggsave(img_name, path = 'images', width = width, height = height)
+}
+small_multiples_hist(trainImputed, is.numeric, geom_histogram(), title = 'Imputed Numeric Histogram')
+
+```
+
+```{r}
+#small_multiples_hist(trainImpTrans, is.numeric, geom_histogram(), title = "Transformed Imputed Numeric Histogram")
+```
+
+This is in direct comparison.
+
+```{r}
+geomDF <- data_frame(BC_transFormed = trainImpTrans$SalePrice_BC, SalePrice = trainImputed$SalePrice)
+geomDF <- geomDF %>% gather(Variable, Value)
+
+ggplot(geomDF, aes(Value, fill = Variable)) + 
+  geom_histogram(alpha=0.2)+
+  facet_wrap(~Variable, ncol = 2, scales = 'free') +
+  theme_minimal()
+
+ggsave('Histogram_of_transformed_vs_normal.png', path = 'images')
+#p2 =   ggplot(geomDF) + geom_histogram(aes(BC_transFormed), alpha=0.2) + theme_minimal()
+```
+
+
+
+```{r}
+small_multiples_hist(trainImputed, is.factor, geom_bar(stat = 'count'), title = 'Imputed Factor Histogram')
+
+```
+
+
+
+
+
+
+```{r fig.height=15, fig.width=10}
+numeric_scatter <- function(df, title = 'Title', width = 10, height = 10, n_col = 6, removeVar = 'SalePrice'){
+  df %>% 
+    select_if(is.numeric) %>% 
+    gather(VariableName, Value, -SalePrice) %>% 
+    ggplot(aes(SalePrice,Value)) +
+    geom_point(colour = 'gray28', alpha = 0.3) +
+    facet_wrap(~VariableName, ncol = n_col, scales = 'free') +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    ggtitle(title)
+  # img_name <- paste(gsub(" ", "_", title), '.png', sep = '')
+  # ggsave(img_name, path = 'images', width = width, height = height)
+}
+
+numeric_scatter(trainImputed, title = 'Scatter Plot of Imputed Numeric Features')
+#numeric_scatter(trainImpTrans, title = 'Scatter Plot of Imputed Transformed Numeric Features', removeVar = 'SalePrice_BC')
+```
+
+```{r}
+p1 <- trainImputed %>% 
+  select_if(is.numeric) %>% 
+  gather(VariableName, Value, -SalePrice) %>% 
+  ggplot(aes(SalePrice,Value)) +
+  geom_point(colour = "#3B9AB2", alpha = 0.3) +
+  facet_wrap(~VariableName, ncol = 4, scales = 'free') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), plot.title = element_text(size=22)) +
+  ggtitle('Non-Transformed')
+
+
+#ggsave('Scatter_Numeric_Imputed.png', path = 'images', width = 10, height = 10)
+```
+
+
+
+```{r}
+p2 <- trainImpTrans %>% 
+  select_if(is.numeric) %>% 
+  gather(VariableName, Value, -SalePrice_BC) %>% 
+  ggplot(aes(SalePrice_BC,Value)) +
+  geom_point(colour = "#E1AF00", alpha = 0.3) +
+  facet_wrap(~VariableName, ncol = 4, scales = 'free') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), plot.title = element_text(size=22)) +
+  ggtitle('Transformed')
+
+#img_name <- paste(gsub(" ", "_", title), '.png', sep = '')
+#ggsave('Scatter_Numeric_Transformed.png', path = 'images', width = 10, height = 10)
+```
+
+
+```{r fig.height=15, fig.width=10}
+ggGrid <- grid.arrange(p1, p2, ncol = 2)
+ggsave('Scatter_Trans_and_Imp.png',plot = ggGrid, path = 'images', width = 10, height = 12)
+```
+
+
+```{r fig.height=10, fig.width=12}
+catagorical_scatter <- function(df, title = 'Title', width = 8, height = 12, n_col = 6){
+  df %>% 
+    dplyr::select(which(sapply(.,class)=="factor"), SalePrice) %>% 
+    gather(VariableName, Value, -SalePrice) %>%
+    ggplot(aes(y=SalePrice,x=Value))+
+    geom_point(colour = 'gray28', alpha = 0.3) +
+    facet_wrap(~VariableName, ncol = n_col, scales = 'free') +
+    theme_minimal() +
+    ggtitle(title)+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))  
+  img_name <- paste(gsub(" ", "_", title), '.png', sep = '')
+  ggsave(img_name, path = 'images', width = width, height = height)
+}
+catagorical_scatter(trainImputed, title = 'Imputed Categorical Scatter')
+#catagorical_scatter(trainImpTrans, title = 'Imputed Transformed Categorical Scatter')
+
+```
+
+```{r fig.height=10, fig.width=10}
+trainImpTrans %>% 
+  dplyr::select(which(sapply(.,class)=="factor"), SalePrice_BC) %>% 
+  gather(VariableName, Value, -SalePrice_BC) %>%
+  ggplot(aes(y = SalePrice_BC, x = Value))+
+  geom_point(colour = 'gray28', alpha = 0.3) +
+  facet_wrap(~VariableName, ncol = 4, scales = 'free') +
+  theme_minimal() +
+  ggtitle('Imputed Scaled Categorical') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  
+
+ggsave('Imputed_Scaled_Categorical.png', path = 'images', width = 7, height = 12)
+```
+
+
+
+
+```{r fig.height=5, fig.width=3}
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+misPercent <- matrix(apply(df,2,pMiss))
+isFactor <- sapply(df, class)
+missDF <- data.frame(VarNames = colnames(df), PercentNA = misPercent, Type = isFactor) %>% as_data_frame()
+ggplot(missDF, aes(x = reorder(VarNames, PercentNA), y = PercentNA, fill = Type)) +
+  geom_bar(stat = 'identity') +
+  coord_flip()+
+  theme_tufte()
+ggsave('missingVals.png', path = 'images')
+```
+
+
+
+```{r}
+corrDF <- trainImputed %>% 
+  select_if(is.numeric) %>% 
+  select(-X1) %>% 
+  na.omit %>% 
+  cor()
+corrDF <- round(corrDF, 2)
+```
+
+```{r}
+
+corDF <- as.data.frame(corrDF)
+corDF[lower.tri(corDF)] <- NA
+
+cor_tri <- as.data.frame(corDF) %>% 
+  mutate(Var1 = factor(row.names(.), levels=row.names(.))) %>% 
+  gather(key = Var2, value = value, -Var1, na.rm = TRUE, factor_key = TRUE) 
+
+ggplot(data = cor_tri) + 
+  geom_tile(aes(Var2, Var1,fill = value)) +
+  theme_minimal()+
+  #scale_fill_gradientn(colours = heat.colors(10)) +
+  scale_fill_gradient2(low = 'black', high = 'red', midpoint = 0) +
+  geom_text(aes(Var2, Var1, label = value), color = "grey", size = 1) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+         axis.title = element_blank()) +
+  ggtitle('Correlation Heat Map')
+
+ggsave('ImputedCorrelationHeatMap.png', path = 'images', height = 8, width = 8)  
+
+```
+

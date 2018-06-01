@@ -1,0 +1,47 @@
+---
+title: "House Prices in Iowa"
+author: | 
+        | **Kyle Gilde, Jaan Bernberg, Kai Lukowiak,**
+        | **Michael Muller, Ilya Kats**
+        | DATA 621, Master of Science in Data Science,
+        | City University of New York
+        
+date: '2018-05-23'
+output: 
+  beamer_presentation:
+    theme: "AnnArbor"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Abstract
+
+What housing
+
+***
+col2
+
+##  Level2 
+
+## Slide with Bullets
+
+- Bullet 1
+- Bullet 2
+- Bullet 3
+
+## Slide with R Output
+
+```{r cars, echo = TRUE}
+summary(cars)
+```
+
+## Slide with Plot
+
+```{r pressure}
+plot(pressure)
+```
+
